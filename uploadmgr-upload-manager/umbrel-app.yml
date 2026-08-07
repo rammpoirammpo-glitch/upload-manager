@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.1.0"
+version: "1.1.1"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,7 +35,8 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Initial umbrelOS Community App Store release. Shares the standard /downloads
-  storage with the *arr family, so completed files are picked up automatically.
+  Added a Settings tab in the dashboard to configure Telegram (token + chat ID)
+  directly from the web UI. Fixed automatic deletion of local files after a
+  successful upload, and hardened the code for 24/7 operation.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

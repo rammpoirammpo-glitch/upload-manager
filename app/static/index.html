@@ -27,6 +27,7 @@
   <button data-tab="queue" class="active">Queue</button>
   <button data-tab="providers">Providers</button>
   <button data-tab="paths">Watch Paths</button>
+  <button data-tab="settings">Settings</button>
   <button data-tab="logs">Logs</button>
 </nav>
 
@@ -82,6 +83,31 @@
       </form>
       <div id="pathList"></div>
       <p class="hint">Files are scanned for stability before being queued. Incomplete files (with .part, .!qb, etc.) are skipped automatically.</p>
+    </div>
+  </section>
+
+  <section id="tab-settings" class="hidden">
+    <div class="panel">
+      <h2>Telegram notifications</h2>
+      <form onsubmit="event.preventDefault(); saveSettings();">
+        <div class="field">
+          <label>Bot token
+            <input id="tgToken" type="text" autocomplete="off"
+                   placeholder="123456789:ABCdef..."></label>
+        </div>
+        <div class="field">
+          <label>Chat ID
+            <input id="tgChatId" type="text" autocomplete="off"
+                   placeholder="123456789"></label>
+        </div>
+        <div class="row">
+          <button class="btn" type="submit">Save</button>
+          <button class="btn small" type="button" id="btnTestNotify2">Test Telegram</button>
+        </div>
+        <span id="settingsStatus" class="muted"></span>
+      </form>
+      <p class="hint">Get the token from @BotFather and your Chat ID from @userinfobot.
+      After saving, press Test to verify. Empty fields clear the saved value.</p>
     </div>
   </section>
 

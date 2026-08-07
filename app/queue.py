@@ -238,7 +238,7 @@ class QueueScheduler(threading.Thread):
         """Delete the source file after a successful upload to save disk space.
         Also removes the now-empty parent directory if it is not a watch root.
         Returns True if the file was deleted."""
-        path = item.get("path")
+        path = item["path"]
         if not path or not os.path.exists(path):
             return False
         try:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import config
-from .database import connect
+from .database import connect, get_setting, set_setting
 from .providers import get_all_provider_classes, get_provider_class
 
 router = APIRouter()
@@ -254,3 +254,24 @@ def notify_test(request: Request):
     n = request.app.state.notifier
     ok, msg = n.test()
     return {"ok": ok, "message": msg}
+
+
+class SettingsIn(BaseModel):
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
+
+@router.get("/api/settings")
+def get_settings():
+    return {
+        "telegram_bot_token": get_setting("telegram_bot_token", ""),
+        "telegram_chat_id": get_setting("telegram_chat_id", ""),
+        "delete_after_upload": config.DELETE_AFTER_UPLOAD,
+    }
+
+
+@router.put("/api/settings")
+def update_settings(body: SettingsIn):
+    set_setting("telegram_bot_token", body.telegram_bot_token.strip())
+    set_setting("telegram_chat_id", body.telegram_chat_id.strip())
+    return {"ok": True}

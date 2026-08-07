@@ -70,26 +70,30 @@ class WebDAVProvider(BaseProvider):
             remote_dir = remote_path.rsplit("/", 1)[0] if "/" in remote_path else ""
             self._ensure_dirs(s, remote_dir)
 
+            f = open(local_path, "rb")
+
             class ProgressFile:
                 def __init__(self):
-                    self.f = open(local_path, "rb")
                     self.sent = 0
 
                 def read(self, n):
-                    data = self.f.read(n)
+                    data = f.read(n)
                     if data:
                         self.sent += len(data)
                         progress_cb(self.sent / total)
                     return data
 
                 def close(self):
-                    self.f.close()
+                    f.close()
 
-            r = s.put(
-                self._remote(remote_path),
-                data=ProgressFile(),
-                headers={"Content-Length": str(total)},
-                timeout=(30, 7200),
-            )
+            try:
+                r = s.put(
+                    self._remote(remote_path),
+                    data=ProgressFile(),
+                    headers={"Content-Length": str(total)},
+                    timeout=(30, 7200),
+                )
+            finally:
+                f.close()
             if r.status_code not in (200, 201, 204):
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")

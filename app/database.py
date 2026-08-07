@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS upload_tasks (
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_items(status);
 CREATE INDEX IF NOT EXISTS idx_queue_folder ON queue_items(folder);
 CREATE INDEX IF NOT EXISTS idx_tasks_item ON upload_tasks(item_id);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -69,3 +74,18 @@ def init_db():
     os.makedirs(config.DATA_DIR, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+
+
+def get_setting(key, default=""):
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value or ""))

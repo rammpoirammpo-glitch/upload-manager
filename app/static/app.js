@@ -338,6 +338,39 @@ async function refreshNotifyStatus() {
     el.className = r.enabled ? "muted ok" : "muted";
   } catch (e) {}
 }
+/* ---------------- Settings (Telegram) ---------------- */
+
+async function loadSettings() {
+  try {
+    const r = await api("/api/settings");
+    $("#tgToken").value = r.telegram_bot_token || "";
+    $("#tgChatId").value = r.telegram_chat_id || "";
+  } catch (e) {}
+}
+async function saveSettings() {
+  try {
+    await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        telegram_bot_token: $("#tgToken").value.trim(),
+        telegram_chat_id: $("#tgChatId").value.trim(),
+      }),
+    });
+    $("#settingsStatus").textContent = "Saved";
+    refreshNotifyStatus();
+  } catch (e) {
+    $("#settingsStatus").textContent = "Save failed: " + e.message;
+  }
+}
+$("#btnTestNotify2").onclick = async () => {
+  try {
+    const r = await api("/api/notify/test", { method: "POST" });
+    toast(r.ok ? "Telegram: " + r.message : "Telegram error: " + r.message, !r.ok);
+  } catch (e) {
+    toast("Telegram test failed: " + e.message, true);
+  }
+};
+
 $("#btnPause").onclick = async () => {
   const paused = $("#btnPause").dataset.paused === "1";
   if (paused) {
@@ -353,6 +386,7 @@ $("#btnPause").onclick = async () => {
 
 async function init() {
   await loadProviderTypes();
+  await loadSettings();
   await refreshAll();
   setInterval(() => { refreshStats(); refreshQueue(); }, 3000);
   setInterval(refreshLogs, 5000);
