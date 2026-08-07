@@ -48,6 +48,10 @@ class QueueScheduler(threading.Thread):
             time.sleep(3)
 
     def _step(self):
+        # If no provider is enabled yet, do not start items: this avoids
+        # repeatedly spawning short-lived worker threads for nothing.
+        if not _enabled_providers():
+            return
         with connect() as conn:
             active = [r["id"] for r in conn.execute(
                 "SELECT id FROM queue_items WHERE status='uploading'")]
@@ -157,6 +161,15 @@ class QueueScheduler(threading.Thread):
                         "Uploaded successfully: %s%s" % (
                             item["filename"],
                             " | local file deleted" if deleted else ""))
+        except Exception as e:
+            # Never leave the item stuck in 'uploading' (which would consume a
+            # concurrency slot forever). Mark it failed so the error is visible
+            # and the slot is freed; the user can retry from the dashboard.
+            logger.exception("Unexpected error processing item %s", item_id)
+            try:
+                self._mark_failed(item_id, "Internal error: %s" % str(e)[:300])
+            except Exception:
+                logger.exception("Could not mark item %s failed", item_id)
         finally:
             with self._lock:
                 self._active.discard(item_id)
