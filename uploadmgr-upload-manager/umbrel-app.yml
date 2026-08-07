@@ -4,6 +4,7 @@ category: media
 name: Upload Manager
 version: "1.0.0"
 tagline: Upload *arr downloads to cloud file hosts
+icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
   Watches the completed downloads produced by Radarr, Sonarr, Readarr, Lidarr and
   the rest of the *arr family, checks file stability, then uploads each file in
@@ -25,6 +26,8 @@ website: https://github.com/rammpoirammpo-glitch/upload-manager
 repo: https://github.com/rammpoirammpo-glitch/upload-manager
 support: https://github.com/rammpoirammpo-glitch/upload-manager/issues
 port: 8080
+gallery:
+  - https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 path: ""
 dependencies: []
 defaultUsername: ""
