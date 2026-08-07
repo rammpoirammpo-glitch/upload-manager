@@ -148,9 +148,15 @@ class QueueScheduler(threading.Thread):
                         "updated_at=datetime('now'), completed_at=datetime('now') "
                         "WHERE id=?", (item_id,))
                 logger.info("Item %s completed", item["filename"])
+                if config.DELETE_AFTER_UPLOAD:
+                    deleted = self._delete_local(item)
+                else:
+                    deleted = False
                 if self.notifier:
                     self.notifier.notify(
-                        "Uploaded successfully: %s" % item["filename"])
+                        "Uploaded successfully: %s%s" % (
+                            item["filename"],
+                            " | local file deleted" if deleted else ""))
         finally:
             with self._lock:
                 self._active.discard(item_id)
@@ -227,6 +233,36 @@ class QueueScheduler(threading.Thread):
                                 item["filename"], wait, attempt + 1, max_attempts)
                     time.sleep(wait)
         logger.error("Gave up on %s (provider %s)", item["filename"], provider_name)
+
+    def _delete_local(self, item):
+        """Delete the source file after a successful upload to save disk space.
+        Also removes the now-empty parent directory if it is not a watch root.
+        Returns True if the file was deleted."""
+        path = item.get("path")
+        if not path or not os.path.exists(path):
+            return False
+        try:
+            os.remove(path)
+            logger.info("Deleted local file after upload: %s", path)
+        except OSError as e:
+            logger.warning("Could not delete local file %s: %s", path, e)
+            return False
+
+        roots = set()
+        try:
+            with connect() as conn:
+                for r in conn.execute("SELECT path FROM watch_paths"):
+                    roots.add(os.path.abspath(r["path"]))
+        except Exception:
+            pass
+        d = os.path.dirname(path)
+        while d and os.path.abspath(d) not in roots and os.path.abspath(d) != os.path.abspath(os.sep):
+            try:
+                os.rmdir(d)
+            except OSError:
+                break
+            d = os.path.dirname(d)
+        return True
 
     def _mark_failed(self, item_id, error):
         with connect() as conn:

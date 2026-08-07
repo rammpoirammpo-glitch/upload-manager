@@ -11,6 +11,10 @@ UPLOAD_CONCURRENCY = int(os.getenv("UPLOAD_CONCURRENCY", "2"))
 RETRY_MAX = int(os.getenv("RETRY_MAX", "3"))
 RETRY_BACKOFF = int(os.getenv("RETRY_BACKOFF", "30"))
 
+# Delete the local file from disk after it has been uploaded successfully
+# to ALL enabled providers, to save disk space.
+DELETE_AFTER_UPLOAD = os.getenv("DELETE_AFTER_UPLOAD", "true").lower() == "true"
+
 AUTH_USER = os.getenv("AUTH_USER", "")
 AUTH_PASS = os.getenv("AUTH_PASS", "")
 

@@ -14,6 +14,9 @@ services:
     restart: on-failure
     environment:
       DATA_DIR: /app/data
+      # Delete the local file after it is uploaded to ALL providers (save disk space).
+      # Set to "false" to keep files on the device.
+      DELETE_AFTER_UPLOAD: "true"
       # Optional Telegram notifications:
       # TELEGRAM_BOT_TOKEN: "123456789:ABCdef..."
       # TELEGRAM_CHAT_ID: "123456789"
