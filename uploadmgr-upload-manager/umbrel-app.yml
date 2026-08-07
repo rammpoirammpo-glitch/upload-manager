@@ -21,9 +21,9 @@ description: >-
   4. Optional: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in this app's config
      to receive upload success/error messages.
 developer: Your Name
-website: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager
-repo: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager
-support: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager/issues
+website: https://github.com/rammpoirammpo-glitch/upload-manager
+repo: https://github.com/rammpoirammpo-glitch/upload-manager
+support: https://github.com/rammpoirammpo-glitch/upload-manager/issues
 port: 8080
 path: ""
 dependencies: []
@@ -35,4 +35,4 @@ releaseNotes: >-
   Initial umbrelOS Community App Store release. Shares the standard /downloads
   storage with the *arr family, so completed files are picked up automatically.
 submitter: Your Name
-submission: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager
+submission: https://github.com/rammpoirammpo-glitch/upload-manager
