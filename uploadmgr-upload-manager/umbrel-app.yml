@@ -1,0 +1,38 @@
+manifestVersion: 1.1
+id: uploadmgr-upload-manager
+category: media
+name: Upload Manager
+version: "1.0.0"
+tagline: Upload *arr downloads to cloud file hosts
+description: >-
+  Watches the completed downloads produced by Radarr, Sonarr, Readarr, Lidarr and
+  the rest of the *arr family, checks file stability, then uploads each file in
+  parallel to multiple cloud file hosts (EarnVids-style, WebDAV, S3, SFTP and
+  local folders). Includes a web dashboard, retry/backoff, persistent SQLite
+  state, and Telegram notifications on upload success and failures.
+
+
+  SETUP
+
+  1. Open the app dashboard.
+  2. Add your cloud providers (file hosts, WebDAV, S3, SFTP, local) and Test them.
+  3. Add watch paths pointing at the shared downloads folder, e.g.
+     /downloads/movies, /downloads/tv, /downloads/books, /downloads/music.
+  4. Optional: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in this app's config
+     to receive upload success/error messages.
+developer: Your Name
+website: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager
+repo: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager
+support: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager/issues
+port: 8080
+path: ""
+dependencies: []
+defaultUsername: ""
+defaultPassword: ""
+permissions:
+  - STORAGE_DOWNLOADS
+releaseNotes: >-
+  Initial umbrelOS Community App Store release. Shares the standard /downloads
+  storage with the *arr family, so completed files are picked up automatically.
+submitter: Your Name
+submission: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager

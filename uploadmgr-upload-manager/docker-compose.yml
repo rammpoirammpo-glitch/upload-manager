@@ -1,0 +1,27 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      # Format: <app-id>_<docker-service-name>_1
+      APP_HOST: uploadmgr-upload-manager_server_1
+      APP_PORT: 8080
+
+  server:
+    # Published automatically by .github/workflows/build-upload-manager.yml.
+    # Only replace REPLACE_WITH_YOUR_GITHUB_USERNAME with your GitHub username.
+    image: ghcr.io/REPLACE_WITH_YOUR_GITHUB_USERNAME/upload-manager:latest
+    restart: on-failure
+    environment:
+      DATA_DIR: /app/data
+      # Optional Telegram notifications:
+      # TELEGRAM_BOT_TOKEN: "123456789:ABCdef..."
+      # TELEGRAM_CHAT_ID: "123456789"
+      # Optional dashboard login:
+      # AUTH_USER: admin
+      # AUTH_PASS: change-me
+    volumes:
+      # Persistent database + logs (survives restarts and app updates)
+      - ${APP_DATA_DIR}/data:/app/data
+      # Shared downloads storage — the same /downloads path the *arr family uses on umbrelOS
+      - ${UMBREL_ROOT}/data/storage/downloads:/downloads:ro

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><h1>Upload Manager</h1></div>
+  <div class="stats">
+    <span class="stat"><b id="stPending">0</b> pending</span>
+    <span class="stat"><b id="stUploading">0</b> uploading</span>
+    <span class="stat"><b id="stCompleted">0</b> done</span>
+    <span class="stat"><b id="stFailed">0</b> failed</span>
+    <span class="stat"><b id="stProviders">0</b> providers</span>
+    <span class="stat"><b id="stPaths">0</b> paths</span>
+  </div>
+  <div class="actions">
+    <button class="btn" id="btnScan">Scan now</button>
+    <button class="btn" id="btnPause">Pause</button>
+  </div>
+</header>
+
+<nav>
+  <button data-tab="queue" class="active">Queue</button>
+  <button data-tab="providers">Providers</button>
+  <button data-tab="paths">Watch Paths</button>
+  <button data-tab="logs">Logs</button>
+</nav>
+
+<main>
+  <section id="tab-queue">
+    <div class="toolbar">
+      <button class="btn small" id="btnClearCompleted">Clear completed</button>
+      <button class="btn small" id="btnClearFailed">Clear failed</button>
+      <span class="spacer"></span>
+      <button class="btn small" id="btnTestNotify">Test Telegram</button>
+      <span id="notifyStatus"></span>
+    </div>
+    <table class="queue">
+      <thead>
+        <tr><th>ID</th><th>File</th><th>Group</th><th>Size</th><th>Status</th><th>Providers</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="queueBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="tab-providers" class="hidden">
+    <div class="grid2">
+      <div class="panel">
+        <h2 id="providerFormTitle">Add Provider</h2>
+        <form onsubmit="event.preventDefault(); saveProvider();">
+          <div class="field">
+            <label>Name <input id="providerName" type="text" placeholder="e.g. My Cloud" required></label>
+          </div>
+          <div class="field">
+            <label>Type <select id="providerType"></select></label>
+          </div>
+          <div id="providerFields"></div>
+          <div class="field">
+            <label class="chk"><input id="providerEnabled" type="checkbox" checked> enabled</label>
+          </div>
+          <button class="btn" id="providerSubmit">Add</button>
+          <button class="btn small" type="button" onclick="resetProviderForm()">Reset</button>
+        </form>
+      </div>
+      <div class="panel">
+        <h2>Providers</h2>
+        <div id="providerList"><p class="muted">Loading...</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-paths" class="hidden">
+    <div class="panel">
+      <h2>Watch Paths</h2>
+      <form onsubmit="event.preventDefault(); addPath();" class="row">
+        <input id="pathInput" type="text" placeholder="/data/downloads/movies" class="grow">
+        <button class="btn">Add path</button>
+      </form>
+      <div id="pathList"></div>
+      <p class="hint">Files are scanned for stability before being queued. Incomplete files (with .part, .!qb, etc.) are skipped automatically.</p>
+    </div>
+  </section>
+
+  <section id="tab-logs" class="hidden">
+    <pre id="logBox" class="log"></pre>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>
