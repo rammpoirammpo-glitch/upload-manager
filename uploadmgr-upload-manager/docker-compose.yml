@@ -26,5 +26,7 @@ services:
     volumes:
       # Persistent database + logs (survives restarts and app updates)
       - ${APP_DATA_DIR}/data:/app/data
-      # Shared downloads storage — the same /downloads path the *arr family uses on umbrelOS
-      - ${UMBREL_ROOT}/data/storage/downloads:/downloads:ro
+      # Shared downloads storage — the same /downloads path the *arr family
+      # uses on umbrelOS. Mounted read-write so completed uploads can be
+      # deleted after a successful cloud upload (DELETE_AFTER_UPLOAD=true).
+      - ${UMBREL_ROOT}/data/storage/downloads:/downloads:rw

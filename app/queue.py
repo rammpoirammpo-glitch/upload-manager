@@ -140,11 +140,16 @@ class QueueScheduler(threading.Thread):
                     "SELECT t.*, p.name AS provider_name FROM upload_tasks t "
                     "JOIN providers p ON p.id=t.provider_id WHERE t.item_id=?",
                     (item_id,)).fetchall()
-            failed = [t for t in tasks if t["status"] == "failed"]
-            if failed:
-                err = "; ".join(f"{t['provider_name']}: {t['error'] or 'failed'}"
-                                for t in failed)
-                self._mark_failed(item_id, err)
+            # Any task that is not 'completed' (e.g. 'pending' because its worker
+            # crashed, or 'failed') means the file did NOT finish uploading, so
+            # we must NOT delete it.
+            not_done = [t for t in tasks if t["status"] != "completed"]
+            if not_done:
+                errs = "; ".join(
+                    "%s: %s" % (t["provider_name"],
+                                t["error"] or ("crashed" if t["status"] == "pending" else "failed"))
+                    for t in not_done)
+                self._mark_failed(item_id, errs)
             else:
                 with connect() as conn:
                     conn.execute(

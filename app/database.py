@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import time
 
 from . import config
 
@@ -60,14 +61,47 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 
-def connect():
-    conn = sqlite3.connect(config.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+class _DBConnection(sqlite3.Connection):
+    """A connection used as a context manager that, on exit, commits or
+    rolls back the transaction AND closes the connection.
+
+    NOTE: sqlite3.Connection's own __exit__ only commits/rolls back but does
+    NOT close the connection, which leaks a file descriptor per call. Over a
+    24/7 run that exhausts the process FD limit and makes SQLite stop opening
+    ("unable to open database file"). This subclass fixes exactly that.
+    """
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                self.commit()
+            else:
+                self.rollback()
+        finally:
+            self.close()
+
+
+def connect(retries=5, delay=0.25):
+    """Open a SQLite connection. A short retry loop smooths over transient
+    'database is locked' / 'unable to open database file' errors under load."""
+    last_exc = None
+    for _ in range(max(1, retries)):
+        try:
+            conn = sqlite3.connect(
+                config.DB_PATH,
+                timeout=30,
+                factory=_DBConnection,
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            return conn
+        except sqlite3.OperationalError as e:
+            last_exc = e
+            time.sleep(delay)
+    raise last_exc
 
 
 def init_db():

@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.1.2"
+version: "1.1.3"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,8 +35,11 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Added a Settings tab in the dashboard to configure Telegram (token + chat ID)
-  directly from the web UI. Fixed automatic deletion of local files after a
-  successful upload, and hardened the code for 24/7 operation.
+  Critical 24/7 fix: database connections are now closed after every use, which
+  prevents the process from exhausting file descriptors and crashing with
+  "unable to open database file" after running for hours. Also adds a Settings
+  tab in the dashboard to configure Telegram (token + chat ID) from the web UI,
+  fixes automatic deletion of local files after a successful upload, and mounts
+  /downloads read-write so deletions succeed.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager
