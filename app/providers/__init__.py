@@ -4,10 +4,12 @@ from .local import LocalProvider
 from .mixdrop import MixdropProvider
 from .s3 import S3Provider
 from .sftp import SFTPProvider
+from .streamtape import StreamTapeProvider
 from .webdav import WebDAVProvider
 
 REGISTRY = {c.type: c for c in (
-    WebDAVProvider, S3Provider, SFTPProvider, LocalProvider, FileHostProvider, MixdropProvider)}
+    WebDAVProvider, S3Provider, SFTPProvider, LocalProvider,
+    FileHostProvider, MixdropProvider, StreamTapeProvider)}
 
 
 def get_provider_class(provider_type):
