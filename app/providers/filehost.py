@@ -8,10 +8,13 @@ from .base import BaseProvider
 
 class FileHostProvider(BaseProvider):
     type = "file_host"
-    display_name = "File Host API (Xvids-style: EarnVids, Vidoza, ...)"
+    display_name = "File Host API (Xvids-style: StreamHG, EarnVids, Vidoza, ...)"
     field_schema = [
+        {"name": "platform", "label": "Platform preset (optional)", "type": "select",
+         "options": ["", "StreamHG", "EarnVids", "Vidoza", "Generic"],
+         "help": "Auto-fills the API host. Choose 'Generic' and type the host manually if yours is not listed."},
         {"name": "api_host", "label": "API host", "type": "text", "required": True,
-         "help": "e.g. https://earnvidsapi.com"},
+         "help": "e.g. https://streamhgapi.com  (the domain, without /api)"},
         {"name": "api_key", "label": "API key", "type": "password", "required": True},
         {"name": "upload_url", "label": "Upload server URL (optional)", "type": "text",
          "help": "Leave empty to auto-fetch via /api/upload/server"},
@@ -21,6 +24,11 @@ class FileHostProvider(BaseProvider):
         {"name": "file_adult", "label": "Adult", "type": "bool", "default": False},
         {"name": "tags", "label": "Tags", "type": "text"},
     ]
+
+    PRESET_HOSTS = {
+        "StreamHG": "https://streamhgapi.com",
+        "EarnVids": "https://earnvidsapi.com",
+    }
 
     def _api(self):
         return self.config.get("api_host", "").rstrip("/")

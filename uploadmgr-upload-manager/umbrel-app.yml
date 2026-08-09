@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.2.6"
+version: "1.2.7"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,10 +35,10 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  New: StreamTape provider. Add it with your API Login + API Key (from Account
-  Settings > API/FTP Credentials) and use Test to verify. Use the per-path
-  provider list to send different watch paths to different servers (e.g. movies
-  to one host, series to Mixdrop or StreamTape). Includes all previous features
-  and stability fixes.
+  New: platform presets for the Xvids-style File Host provider. Add StreamHG,
+  EarnVids (and more later) with one click: pick the platform preset and it
+  auto-fills the API host, then paste your API key. StreamHG is supported out
+  of the box. Also adds StreamTape and Mixdrop providers, per-path provider
+  routing, automatic cloud folders, and all previous stability fixes.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

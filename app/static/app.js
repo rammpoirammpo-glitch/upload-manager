@@ -126,11 +126,38 @@ function renderProviderFields() {
         <input type="checkbox" data-field="${f.name}" ${val ? "checked" : ""}> ${esc(f.label)}
       </label>${f.help ? `<small>${esc(f.help)}</small>` : ""}</div>`;
     }
+    if (f.type === "select") {
+      const opts = (f.options || []).map(o =>
+        `<option value="${esc(o)}"${String(val) === o ? " selected" : ""}>${esc(o || "(none)")}</option>`).join("");
+      return `<div class="field"><label>${esc(f.label)}
+        <select data-field="${f.name}" class="grow">${opts}</select>
+      </label>${f.help ? `<small>${esc(f.help)}</small>` : ""}</div>`;
+    }
     return `<div class="field"><label>${esc(f.label)}${f.required ? " *" : ""}
       <input type="${f.type === "password" ? "password" : f.type === "number" ? "number" : "text"}"
         data-field="${f.name}" value="${esc(val)}" ${f.required ? "required" : ""}>
     </label>${f.help ? `<small>${esc(f.help)}</small>` : ""}</div>`;
   }).join("");
+  attachProviderPresets();
+}
+
+// For Xvids-style file_host providers, picking a platform preset auto-fills the
+// API host, so adding a new similar host (StreamHG, EarnVids, ...) is one click.
+const PRESET_HOSTS = {
+  StreamHG: "https://streamhgapi.com",
+  EarnVids: "https://earnvidsapi.com",
+};
+
+function attachProviderPresets() {
+  if ($("#providerType").value !== "file_host") return;
+  const platform = $('[data-field="platform"]');
+  const host = $('[data-field="api_host"]');
+  if (!platform || !host) return;
+  const apply = () => {
+    const preset = PRESET_HOSTS[platform.value];
+    if (preset) host.value = preset;
+  };
+  platform.addEventListener("change", apply);
 }
 
 function collectProviderConfig() {
