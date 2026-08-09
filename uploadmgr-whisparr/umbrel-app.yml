@@ -2,9 +2,9 @@ manifestVersion: 1.1
 id: uploadmgr-whisparr
 category: media
 name: Whisparr
-version: "2.2.0.108"
+version: "3.0.0.1181"
 tagline: Manage your adult media collection
-icon: https://raw.githubusercontent.com/pi-hosted/pi-hosted/master/images/whisparr-icon.png
+icon: https://i.imgur.com/3jVS6lO.png
 description: >-
   Whisparr is an adult media collection manager for Usenet and BitTorrent users.
   It can monitor multiple RSS feeds for new movies and scenes and will interface
@@ -15,32 +15,36 @@ description: >-
 
   SETUP
 
-  1. Open the Whisparr dashboard.
-  2. Add your indexers (it integrates with Prowlarr the same way Radarr and
-     Sonarr do) and download clients.
-  3. Add a root folder under the shared media library and set your download
-     client paths to the shared /downloads folder.
+  Whisparr on umbrelOS automatically connects to download clients installed from
+  the umbrelOS App Store. Simply install Transmission (or qBittorrent / SABnzbd)
+  from the umbrelOS App Store and the connection is set up for you.
 
+  All you need to do from there is add an indexer so Whisparr can search for
+  content. You can add indexers directly, or install Prowlarr from the umbrelOS
+  App Store and add your indexers there - they become available in Whisparr
+  automatically.
 
-  This app is fully separate from any other app in this store. It is provided
-  as-is using a community-maintained image; see the Servarr wiki for details.
+  This app is fully separate from any other app in this store and is provided
+  using a community-maintained image (hotio).
 developer: Your Name
 website: https://whisparr.com
 repo: https://github.com/Whisparr/Whisparr
-support: https://wiki.servarr.com/whisparr
+support: https://github.com/Whisparr/Whisparr/issues
 port: 6969
 gallery:
-  - https://raw.githubusercontent.com/pi-hosted/pi-hosted/master/images/whisparr-icon.png
+  - https://i.imgur.com/3jVS6lO.png
 path: ""
-dependencies: []
+dependencies:
+  - transmission
 defaultUsername: ""
 defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
-  - STORAGE_MEDIA
 releaseNotes: >-
-  Adds Whisparr to this store as a fully separate app. Integrates with Prowlarr
-  and the rest of the *arr family using the shared downloads and media folders.
-  Uses the community-maintained hotio image (ghcr.io/hotio/whisparr:latest).
+  Adds Whisparr to this store with automatic integration: declares Transmission
+  as a dependency and uses the umbrelOS media-app-configurator so Whisparr
+  auto-connects to download clients installed from the umbrelOS App Store
+  (Transmission, and optionally qBittorrent/SABnzbd). Indexers are added via
+  Prowlarr or directly.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

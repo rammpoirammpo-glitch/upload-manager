@@ -6,23 +6,45 @@ services:
       # Format: <app-id>_<docker-service-name>_1
       APP_HOST: uploadmgr-whisparr_server_1
       APP_PORT: 6969
+      PROXY_AUTH_WHITELIST: "/api/*"
 
   server:
-    # Whisparr official image is not provided by the project; the community
-    # maintains several. hotio is a well maintained one used by many.
+    # Whisparr has no official image; hotio is the well maintained community one.
     image: ghcr.io/hotio/whisparr:latest
-    restart: on-failure
     environment:
       PUID: 1000
       PGID: 1000
-      TZ: Etc/UTC
       UMASK: "002"
-      WEBUI_PORTS: "6969/tcp"
+      TZ: ${TZ:-"Etc/UTC"}
     volumes:
       # Persistent configuration (survives restarts and app updates)
-      - ${APP_DATA_DIR}/config:/config
-      # Shared downloads storage — the same /downloads path the *arr family
-      # uses on umbrelOS, so Whisparr can import completed downloads.
-      - ${UMBREL_ROOT}/data/storage/downloads:/downloads:rw
-      # Shared media library root where Whisparr stores its organized media.
-      - ${UMBREL_ROOT}/data/storage/media:/data:rw
+      - ${APP_DATA_DIR}/data/config:/config
+      # Shared downloads storage — same /downloads the *arr family uses on umbrelOS
+      - ${UMBREL_ROOT}/data/storage/downloads:/downloads
+    restart: on-failure
+
+  # umbrelOS "Media App Configurator": automatically wires Whisparr to download
+  # clients (Transmission, optional qBittorrent/SABnzbd) installed from the
+  # umbrelOS App Store, the same way Radarr/Sonarr auto-connect.
+  mac:
+    image: getumbrel/media-app-configurator:v1.3.0@sha256:67e75dd9f5a14402b7816119a8e20189bc2465484cea077909d164687e59742b
+    user: "1000:1000"
+    restart: on-failure
+    volumes:
+      - ${APP_DATA_DIR}/data/config:/config
+      - ${UMBREL_ROOT}/data/storage/downloads:/downloads
+    environment:
+      APP_ID: "uploadmgr-whisparr"
+      APP_URL: "http://uploadmgr-whisparr_server_1:6969"
+      TRANSMISSION_HOST: "transmission_server_1"
+      TRANSMISSION_PORT: 9091
+      ROOT_FOLDER: "/downloads/movies"
+      # optional qBittorrent download client
+      QBITTORRENT_INSTALLED: ${APP_WHISPARR_QBITTORRENT_INSTALLED:-"false"}
+      QBITTORRENT_HOST: "qbittorrent_server_1"
+      QBITTORRENT_PORT: 8080
+      # optional SABnzbd download client
+      SABNZBD_INSTALLED: ${APP_WHISPARR_SABNZBD_INSTALLED:-"false"}
+      SABNZBD_HOST: "sabnzbd_web_1"
+      SABNZBD_PORT: 8080
+      SABNZBD_API_KEY: ${APP_WHISPARR_SABNZBD_API_KEY:-""}
