@@ -120,12 +120,20 @@ def create_watchpath(body: WatchPathIn):
     p = os.path.abspath(body.path)
     remote_dir = (body.remote_dir or "").strip().strip("/")
     with connect() as conn:
-        try:
+        existing = conn.execute(
+            "SELECT * FROM watch_paths WHERE path=?", (p,)).fetchone()
+        if existing:
+            # The path is already configured: just update its remote folder
+            # (and enabled state) instead of rejecting with 409.
             conn.execute(
-                "INSERT INTO watch_paths(path, enabled, remote_dir) VALUES(?,?,?)",
-                (p, 1 if body.enabled else 0, remote_dir))
-        except Exception:
-            raise HTTPException(409, "Path already exists")
+                "UPDATE watch_paths SET remote_dir=?, enabled=? WHERE id=?",
+                (remote_dir, 1 if body.enabled else 0, existing["id"]))
+            row = conn.execute(
+                "SELECT * FROM watch_paths WHERE id=?", (existing["id"],)).fetchone()
+            return dict(row)
+        conn.execute(
+            "INSERT INTO watch_paths(path, enabled, remote_dir) VALUES(?,?,?)",
+            (p, 1 if body.enabled else 0, remote_dir))
         row = conn.execute("SELECT * FROM watch_paths WHERE path=?", (p,)).fetchone()
     return dict(row)
 
