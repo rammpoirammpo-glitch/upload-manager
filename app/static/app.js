@@ -259,15 +259,14 @@ async function refreshPaths() {
       : '<span class="st-badge st-failed">not found in container</span>';
     const remoteDir = p.effective_remote_dir || p.remote_dir || "";
     const remoteBadge = remoteDir
-      ? `<span class="st-badge st-completed">cloud folder: ${esc(remoteDir)}${p.remote_dir ? "" : " (auto)"}</span>`
+      ? `<span class="st-badge st-completed">cloud folder: ${esc(remoteDir)} (auto)</span>`
       : "";
     return `<div class="card path-card">
       <div><code>${esc(p.path)}</code> ${existsBadge}
         <span class="st-badge ${p.enabled ? "st-completed" : "st-skipped"}">${p.enabled ? "enabled" : "disabled"}</span>
         ${remoteBadge}</div>
       <div class="row" style="margin-top:6px">
-        <input id="rdir-${p.id}" type="text" placeholder="Remote folder" value="${esc(p.remote_dir || "")}" class="grow">
-        <button class="btn small" onclick="updatePathRemoteDir(${p.id})">Set folder</button>
+        <button class="btn small" onclick="togglePath(${p.id}, ${p.enabled ? 0 : 1})">${p.enabled ? "Disable" : "Enable"}</button>
         <button class="btn small danger" onclick="deletePath(${p.id})">Remove</button>
       </div>
     </div>`;
@@ -278,18 +277,14 @@ async function addPath() {
   const input = $("#pathInput");
   const v = input.value.trim();
   if (!v) return alert("Path is required");
-  const rdir = ($("#pathRemoteDir").value || "").trim();
-  try { await api("/api/watchpaths", { method: "POST", body: JSON.stringify({ path: v, enabled: true, remote_dir: rdir }) }); }
+  try { await api("/api/watchpaths", { method: "POST", body: JSON.stringify({ path: v, enabled: true }) }); }
   catch (e) { return alert(e.message); }
   input.value = "";
-  $("#pathRemoteDir").value = "";
   refreshPaths();
 }
 
-async function updatePathRemoteDir(id) {
-  const el = $("#rdir-" + id);
-  const rdir = (el.value || "").trim();
-  try { await api("/api/watchpaths/" + id, { method: "PUT", body: JSON.stringify({ enabled: true, remote_dir: rdir }) }); }
+async function togglePath(id, enabled) {
+  try { await api("/api/watchpaths/" + id, { method: "PUT", body: JSON.stringify({ enabled: Boolean(enabled) }) }); }
   catch (e) { return alert(e.message); }
   refreshPaths();
 }
