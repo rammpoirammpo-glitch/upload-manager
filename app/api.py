@@ -109,6 +109,10 @@ def list_watchpaths():
     for r in rows:
         d = dict(r)
         d["exists"] = os.path.isdir(d["path"])
+        effective = d["remote_dir"] or ""
+        if not effective and config.AUTO_REMOTE_FOLDER:
+            effective = os.path.basename(d["path"].rstrip(os.sep)) or ""
+        d["effective_remote_dir"] = effective
         out.append(d)
     return {"paths": out}
 

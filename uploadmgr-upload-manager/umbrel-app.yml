@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.2.1"
+version: "1.2.2"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,9 +35,10 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Fixes: adding a remote folder to an already-configured watch path now updates
-  it instead of showing "Path already exists". New feature: per-watch-path
-  cloud folders (set an optional "Remote folder" per path so each source lands
-  in its own cloud folder). Includes the previous 24/7 stability fixes.
+  Auto cloud folders: each watch path now automatically uses its own folder name
+  on the cloud (e.g. /downloads/movies -> a single "movies" cloud folder with
+  all your films, /downloads/series -> a single "series" folder with all your
+  shows). No need to type a folder manually. You can still override it per path.
+  Includes all previous stability and 409 fixes.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

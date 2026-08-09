@@ -23,6 +23,11 @@ RETRY_BACKOFF = _int("RETRY_BACKOFF", 30, minimum=0)
 # to ALL enabled providers, to save disk space.
 DELETE_AFTER_UPLOAD = os.getenv("DELETE_AFTER_UPLOAD", "true").lower() == "true"
 
+# When a watch path has no "Remote folder" set, automatically use the watch
+# path's own folder name (e.g. /downloads/movies -> "movies") as the cloud
+# folder, so each source gets its own single cloud folder with no manual entry.
+AUTO_REMOTE_FOLDER = os.getenv("AUTO_REMOTE_FOLDER", "true").lower() == "true"
+
 AUTH_USER = os.getenv("AUTH_USER", "")
 AUTH_PASS = os.getenv("AUTH_PASS", "")
 

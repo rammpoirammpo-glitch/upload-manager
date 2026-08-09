@@ -257,8 +257,9 @@ async function refreshPaths() {
     const existsBadge = p.exists
       ? '<span class="st-badge st-completed">exists</span>'
       : '<span class="st-badge st-failed">not found in container</span>';
-    const remoteBadge = p.remote_dir
-      ? `<span class="st-badge st-completed">cloud folder: ${esc(p.remote_dir)}</span>`
+    const remoteDir = p.effective_remote_dir || p.remote_dir || "";
+    const remoteBadge = remoteDir
+      ? `<span class="st-badge st-completed">cloud folder: ${esc(remoteDir)}${p.remote_dir ? "" : " (auto)"}</span>`
       : "";
     return `<div class="card path-card">
       <div><code>${esc(p.path)}</code> ${existsBadge}

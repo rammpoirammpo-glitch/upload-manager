@@ -47,6 +47,8 @@ class Watcher(threading.Thread):
         for root_rec in roots:
             root = os.path.abspath(root_rec["path"])
             remote_dir = root_rec["remote_dir"] or ""
+            if not remote_dir and config.AUTO_REMOTE_FOLDER:
+                remote_dir = os.path.basename(root.rstrip(os.sep)) or ""
             if not os.path.isdir(root):
                 if root not in self._warned:
                     logger.warning(
