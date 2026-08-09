@@ -1,0 +1,28 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      # Format: <app-id>_<docker-service-name>_1
+      APP_HOST: uploadmgr-whisparr_server_1
+      APP_PORT: 6969
+
+  server:
+    # Whisparr official image is not provided by the project; the community
+    # maintains several. hotio is a well maintained one used by many.
+    image: ghcr.io/hotio/whisparr:latest
+    restart: on-failure
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Etc/UTC
+      UMASK: "002"
+      WEBUI_PORTS: "6969/tcp"
+    volumes:
+      # Persistent configuration (survives restarts and app updates)
+      - ${APP_DATA_DIR}/config:/config
+      # Shared downloads storage — the same /downloads path the *arr family
+      # uses on umbrelOS, so Whisparr can import completed downloads.
+      - ${UMBREL_ROOT}/data/storage/downloads:/downloads:rw
+      # Shared media library root where Whisparr stores its organized media.
+      - ${UMBREL_ROOT}/data/storage/media:/data:rw
