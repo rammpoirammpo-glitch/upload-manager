@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.2.4"
+version: "1.2.5"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,11 +35,9 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  New: Mixdrop provider + per-path provider routing. Add Mixdrop as a provider
-  (email + API key) and pick which provider(s) each watch path uses, so you can
-  send movies to one server (e.g. EarnVids) and series to Mixdrop. Each watch
-  path keeps its automatic cloud folder from the source folder name. Files now
-  upload only to the providers you chose for that path. Includes all previous
-  stability fixes.
+  Fix Mixdrop provider to match Mixdrop's real API (response uses "success"
+  instead of "status"). Use Test button to verify your Mixdrop email + API key.
+  Includes per-path provider routing, the Mixdrop provider, automatic cloud
+  folders, and all previous stability fixes.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

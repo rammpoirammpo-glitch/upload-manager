@@ -29,16 +29,14 @@ class MixdropProvider(BaseProvider):
         if not email or not key:
             return False, "Email and API key are required"
         try:
-            r = requests.get("https://api.mixdrop.ag/account/info",
+            # folderlist returns success=true only when the key is valid.
+            r = requests.get("https://api.mixdrop.ag/folderlist",
                              params={"email": email, "key": key}, timeout=20,
                              headers={"User-Agent": "upload-manager/1.0"})
             r.raise_for_status()
             data = r.json()
-            if int(data.get("status", 200)) != 200:
-                return False, "API error: %s" % data.get("msg", "")
-            res = data.get("result") or {}
-            if isinstance(res, dict) and res.get("email"):
-                return True, "Connected as %s" % res["email"]
+            if not data.get("success"):
+                return False, "Invalid credentials: %s" % data.get("msg", "")
             return True, "Connected to Mixdrop"
         except Exception as e:
             return False, str(e)
@@ -87,10 +85,8 @@ class MixdropProvider(BaseProvider):
             data = r.json()
         except Exception:
             raise RuntimeError("Invalid upload response: %s" % r.text[:200])
-        if int(data.get("status", 200)) != 200:
+        if not data.get("success"):
             raise RuntimeError("API error: %s" % data.get("msg", ""))
         res = data.get("result")
-        if isinstance(res, dict) and str(res.get("status", "")).upper() != "OK":
-            raise RuntimeError("Upload failed: %s" % res.get("status"))
-        if res in (None, "", {}):
-            raise RuntimeError("Empty upload result from Mixdrop")
+        if not isinstance(res, dict) or not (res.get("url") or res.get("fileref")):
+            raise RuntimeError("Empty upload result from Mixdrop: %s" % (res or ""))
