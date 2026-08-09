@@ -41,11 +41,12 @@ class Watcher(threading.Thread):
     def scan_once(self):
         result = {"paths": 0, "files": 0, "queued": 0}
         with connect() as conn:
-            roots = [r["path"] for r in conn.execute(
-                "SELECT path FROM watch_paths WHERE enabled=1")]
+            roots = [dict(r) for r in conn.execute(
+                "SELECT path, remote_dir FROM watch_paths WHERE enabled=1")]
         seen = set()
-        for root in roots:
-            root = os.path.abspath(root)
+        for root_rec in roots:
+            root = os.path.abspath(root_rec["path"])
+            remote_dir = root_rec["remote_dir"] or ""
             if not os.path.isdir(root):
                 if root not in self._warned:
                     logger.warning(
@@ -70,7 +71,7 @@ class Watcher(threading.Thread):
                         continue
                     seen.add(full)
                     result["files"] += 1
-                    if self._check(full, root):
+                    if self._check(full, root, remote_dir):
                         result["queued"] += 1
         with self._stable_lock:
             stale = [p for p in self._stable if p not in seen]
@@ -78,7 +79,7 @@ class Watcher(threading.Thread):
                 self._stable.pop(p, None)
         return result
 
-    def _check(self, path, root):
+    def _check(self, path, root, remote_dir=""):
         try:
             st = os.stat(path)
         except OSError:
@@ -92,13 +93,13 @@ class Watcher(threading.Thread):
             if prev and prev[0] == st.st_size and prev[1] == st.st_mtime \
                     and (now - prev[2]) >= config.STABLE_SECONDS:
                 self._stable.pop(path, None)
-                return self._enqueue(path, root, st.st_size)
+                return self._enqueue(path, root, st.st_size, remote_dir)
             if age >= config.STABLE_SECONDS:
-                return self._enqueue(path, root, st.st_size)
+                return self._enqueue(path, root, st.st_size, remote_dir)
             self._stable[path] = (st.st_size, st.st_mtime, now)
         return False
 
-    def _enqueue(self, path, root, size):
+    def _enqueue(self, path, root, size, remote_dir=""):
         try:
             rel = os.path.relpath(path, root)
         except ValueError:
@@ -107,11 +108,12 @@ class Watcher(threading.Thread):
         rel_dir = os.path.dirname(rel)
         base = os.path.basename(root.rstrip("/")) or "root"
         folder = base if rel_dir in ("", "/") else base + "/" + rel_dir
+        remote_dir = (remote_dir or "").strip().strip("/")
         with connect() as conn:
             cur = conn.execute(
-                "INSERT OR IGNORE INTO queue_items(path, filename, rel_path, folder, size) "
-                "VALUES(?,?,?,?,?)",
-                (path, os.path.basename(path), rel, folder, size))
+                "INSERT OR IGNORE INTO queue_items(path, filename, rel_path, folder, remote_dir, size) "
+                "VALUES(?,?,?,?,?,?)",
+                (path, os.path.basename(path), rel, folder, remote_dir, size))
             if cur.rowcount == 0:
                 return False
         logger.info("Queued: %s", path)

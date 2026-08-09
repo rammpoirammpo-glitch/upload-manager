@@ -79,10 +79,11 @@
       <h2>Watch Paths</h2>
       <form onsubmit="event.preventDefault(); addPath();" class="row">
         <input id="pathInput" type="text" placeholder="/data/downloads/movies" class="grow">
+        <input id="pathRemoteDir" type="text" placeholder="Remote folder (optional, e.g. Movies)" class="grow">
         <button class="btn">Add path</button>
       </form>
       <div id="pathList"></div>
-      <p class="hint">Files are scanned for stability before being queued. Incomplete files (with .part, .!qb, etc.) are skipped automatically.</p>
+      <p class="hint">Files are scanned for stability before being queued. Incomplete files (with .part, .!qb, etc.) are skipped automatically. "Remote folder" puts every file from this path into its own cloud folder (e.g. "Movies" for Radarr, "Shows" for Sonarr); leave empty to upload into the provider root as before.</p>
     </div>
   </section>
 

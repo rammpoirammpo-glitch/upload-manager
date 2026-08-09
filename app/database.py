@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS watch_paths (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     path TEXT NOT NULL UNIQUE,
     enabled INTEGER NOT NULL DEFAULT 1,
+    remote_dir TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS queue_items (
     filename TEXT NOT NULL,
     rel_path TEXT NOT NULL DEFAULT '',
     folder TEXT NOT NULL DEFAULT '',
+    remote_dir TEXT NOT NULL DEFAULT '',
     size INTEGER NOT NULL DEFAULT 0,
     order_index INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -108,6 +110,19 @@ def init_db():
     os.makedirs(config.DATA_DIR, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn):
+    """Add columns introduced in later versions to pre-existing databases."""
+    _add_column(conn, "watch_paths", "remote_dir", "TEXT NOT NULL DEFAULT ''")
+    _add_column(conn, "queue_items", "remote_dir", "TEXT NOT NULL DEFAULT ''")
+
+
+def _add_column(conn, table, column, definition):
+    cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def get_setting(key, default=""):

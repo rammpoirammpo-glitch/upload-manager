@@ -125,6 +125,13 @@ class QueueScheduler(threading.Thread):
                     "WHERE item_id=? AND status IN ('pending','failed')", (item_id,))
             remote = item["rel_path"] or os.path.basename(item["path"])
             remote = remote.replace(os.sep, "/")
+            # Optional per-watch-path remote folder: prefix the path so each
+            # source (e.g. Radarr vs Sonarr) lands in its own cloud folder.
+            # Only applied for providers that use real directory paths; the
+            # FileHost provider ignores it (it only uses the file basename).
+            remote_dir = (item["remote_dir"] or "").strip().strip("/")
+            if remote_dir:
+                remote = remote_dir + "/" + remote
             with ThreadPoolExecutor(max_workers=len(providers),
                                     thread_name_prefix="upload") as ex:
                 futures = [ex.submit(self._upload_to_provider, item_id, p, remote)

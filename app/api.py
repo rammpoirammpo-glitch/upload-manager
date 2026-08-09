@@ -19,8 +19,9 @@ class ProviderIn(BaseModel):
 
 
 class WatchPathIn(BaseModel):
-    path: str
+    path: str = ""
     enabled: bool = True
+    remote_dir: str = ""
 
 
 def _serialize_provider(row):
@@ -114,15 +115,32 @@ def list_watchpaths():
 
 @router.post("/api/watchpaths", status_code=201)
 def create_watchpath(body: WatchPathIn):
+    if not (body.path or "").strip():
+        raise HTTPException(400, "Path is required")
     p = os.path.abspath(body.path)
+    remote_dir = (body.remote_dir or "").strip().strip("/")
     with connect() as conn:
         try:
             conn.execute(
-                "INSERT INTO watch_paths(path, enabled) VALUES(?,?)",
-                (p, 1 if body.enabled else 0))
+                "INSERT INTO watch_paths(path, enabled, remote_dir) VALUES(?,?,?)",
+                (p, 1 if body.enabled else 0, remote_dir))
         except Exception:
             raise HTTPException(409, "Path already exists")
         row = conn.execute("SELECT * FROM watch_paths WHERE path=?", (p,)).fetchone()
+    return dict(row)
+
+
+@router.put("/api/watchpaths/{pid}")
+def update_watchpath(pid: int, body: WatchPathIn):
+    remote_dir = (body.remote_dir or "").strip().strip("/")
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM watch_paths WHERE id=?", (pid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Watch path not found")
+        conn.execute(
+            "UPDATE watch_paths SET enabled=?, remote_dir=? WHERE id=?",
+            (1 if body.enabled else 0, remote_dir, pid))
+        row = conn.execute("SELECT * FROM watch_paths WHERE id=?", (pid,)).fetchone()
     return dict(row)
 
 
