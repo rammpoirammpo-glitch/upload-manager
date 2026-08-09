@@ -1,0 +1,96 @@
+import os
+
+import requests
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+
+from .base import BaseProvider
+
+DEFAULT_UPLOAD_URL = "https://ul.mixdrop.ag/api"
+
+
+class MixdropProvider(BaseProvider):
+    type = "mixdrop"
+    display_name = "Mixdrop"
+    field_schema = [
+        {"name": "email", "label": "Email", "type": "text", "required": True},
+        {"name": "key", "label": "API key", "type": "password", "required": True,
+         "help": "Grab your API key from https://mixdrop.ag/api"},
+        {"name": "upload_url", "label": "Upload URL (optional)", "type": "text",
+         "default": DEFAULT_UPLOAD_URL},
+        {"name": "folder_id", "label": "Folder ID (optional)", "type": "text"},
+    ]
+
+    def _upload_url(self):
+        return (self.config.get("upload_url") or DEFAULT_UPLOAD_URL).rstrip("/")
+
+    def test(self):
+        email = (self.config.get("email") or "").strip()
+        key = (self.config.get("key") or "").strip()
+        if not email or not key:
+            return False, "Email and API key are required"
+        try:
+            r = requests.get("https://api.mixdrop.ag/account/info",
+                             params={"email": email, "key": key}, timeout=20,
+                             headers={"User-Agent": "upload-manager/1.0"})
+            r.raise_for_status()
+            data = r.json()
+            if int(data.get("status", 200)) != 200:
+                return False, "API error: %s" % data.get("msg", "")
+            res = data.get("result") or {}
+            if isinstance(res, dict) and res.get("email"):
+                return True, "Connected as %s" % res["email"]
+            return True, "Connected to Mixdrop"
+        except Exception as e:
+            return False, str(e)
+
+    def upload(self, local_path, remote_path, progress_cb):
+        total = os.path.getsize(local_path)
+        if total <= 0:
+            raise RuntimeError("File is empty")
+        email = (self.config.get("email") or "").strip()
+        key = (self.config.get("key") or "").strip()
+        if not email or not key:
+            raise RuntimeError("Email and API key are required")
+
+        fh = open(local_path, "rb")
+        try:
+            fields = [
+                ("email", email),
+                ("key", key),
+                ("file", (os.path.basename(local_path), fh, "application/octet-stream")),
+            ]
+            fld = (self.config.get("folder_id") or "").strip()
+            if fld:
+                fields.append(("folder", fld))
+
+            enc = MultipartEncoder(fields=fields)
+
+            def _monitor(mon):
+                try:
+                    progress_cb(min(1.0, mon.bytes_read / max(1, mon.len)))
+                except Exception:
+                    pass
+
+            monitor = MultipartEncoderMonitor(enc, _monitor)
+            r = requests.post(
+                self._upload_url(), data=monitor,
+                headers={"Content-Type": monitor.content_type,
+                         "User-Agent": "upload-manager/1.0"},
+                timeout=(30, 7200),
+            )
+        finally:
+            fh.close()
+
+        if r.status_code not in (200, 201):
+            raise RuntimeError("HTTP %s: %s" % (r.status_code, r.text[:200]))
+        try:
+            data = r.json()
+        except Exception:
+            raise RuntimeError("Invalid upload response: %s" % r.text[:200])
+        if int(data.get("status", 200)) != 200:
+            raise RuntimeError("API error: %s" % data.get("msg", ""))
+        res = data.get("result")
+        if isinstance(res, dict) and str(res.get("status", "")).upper() != "OK":
+            raise RuntimeError("Upload failed: %s" % res.get("status"))
+        if res in (None, "", {}):
+            raise RuntimeError("Empty upload result from Mixdrop")

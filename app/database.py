@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS watch_paths (
     path TEXT NOT NULL UNIQUE,
     enabled INTEGER NOT NULL DEFAULT 1,
     remote_dir TEXT NOT NULL DEFAULT '',
+    provider_ids TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS queue_items (
     rel_path TEXT NOT NULL DEFAULT '',
     folder TEXT NOT NULL DEFAULT '',
     remote_dir TEXT NOT NULL DEFAULT '',
+    provider_ids TEXT NOT NULL DEFAULT '',
     size INTEGER NOT NULL DEFAULT 0,
     order_index INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -116,7 +118,9 @@ def init_db():
 def _migrate(conn):
     """Add columns introduced in later versions to pre-existing databases."""
     _add_column(conn, "watch_paths", "remote_dir", "TEXT NOT NULL DEFAULT ''")
+    _add_column(conn, "watch_paths", "provider_ids", "TEXT NOT NULL DEFAULT ''")
     _add_column(conn, "queue_items", "remote_dir", "TEXT NOT NULL DEFAULT ''")
+    _add_column(conn, "queue_items", "provider_ids", "TEXT NOT NULL DEFAULT ''")
 
 
 def _add_column(conn, table, column, definition):

@@ -22,6 +22,7 @@ class WatchPathIn(BaseModel):
     path: str = ""
     enabled: bool = True
     remote_dir: str = ""
+    provider_ids: str = ""
 
 
 def _serialize_provider(row):
@@ -117,12 +118,23 @@ def list_watchpaths():
     return {"paths": out}
 
 
+def _clean_provider_ids(raw):
+    """Normalize provider_ids to a canonical comma-separated id list."""
+    ids = []
+    for x in (raw or "").split(","):
+        x = x.strip()
+        if x.isdigit():
+            ids.append(str(int(x)))
+    return ",".join(ids)
+
+
 @router.post("/api/watchpaths", status_code=201)
 def create_watchpath(body: WatchPathIn):
     if not (body.path or "").strip():
         raise HTTPException(400, "Path is required")
     p = os.path.abspath(body.path)
     remote_dir = (body.remote_dir or "").strip().strip("/")
+    provider_ids = _clean_provider_ids(body.provider_ids)
     with connect() as conn:
         existing = conn.execute(
             "SELECT * FROM watch_paths WHERE path=?", (p,)).fetchone()
@@ -130,14 +142,14 @@ def create_watchpath(body: WatchPathIn):
             # The path is already configured: just update its remote folder
             # (and enabled state) instead of rejecting with 409.
             conn.execute(
-                "UPDATE watch_paths SET remote_dir=?, enabled=? WHERE id=?",
-                (remote_dir, 1 if body.enabled else 0, existing["id"]))
+                "UPDATE watch_paths SET remote_dir=?, enabled=?, provider_ids=? WHERE id=?",
+                (remote_dir, 1 if body.enabled else 0, provider_ids, existing["id"]))
             row = conn.execute(
                 "SELECT * FROM watch_paths WHERE id=?", (existing["id"],)).fetchone()
             return dict(row)
         conn.execute(
-            "INSERT INTO watch_paths(path, enabled, remote_dir) VALUES(?,?,?)",
-            (p, 1 if body.enabled else 0, remote_dir))
+            "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) VALUES(?,?,?,?)",
+            (p, 1 if body.enabled else 0, remote_dir, provider_ids))
         row = conn.execute("SELECT * FROM watch_paths WHERE path=?", (p,)).fetchone()
     return dict(row)
 
@@ -145,13 +157,14 @@ def create_watchpath(body: WatchPathIn):
 @router.put("/api/watchpaths/{pid}")
 def update_watchpath(pid: int, body: WatchPathIn):
     remote_dir = (body.remote_dir or "").strip().strip("/")
+    provider_ids = _clean_provider_ids(body.provider_ids)
     with connect() as conn:
         row = conn.execute("SELECT * FROM watch_paths WHERE id=?", (pid,)).fetchone()
         if not row:
             raise HTTPException(404, "Watch path not found")
         conn.execute(
-            "UPDATE watch_paths SET enabled=?, remote_dir=? WHERE id=?",
-            (1 if body.enabled else 0, remote_dir, pid))
+            "UPDATE watch_paths SET enabled=?, remote_dir=?, provider_ids=? WHERE id=?",
+            (1 if body.enabled else 0, remote_dir, provider_ids, pid))
         row = conn.execute("SELECT * FROM watch_paths WHERE id=?", (pid,)).fetchone()
     return dict(row)
 

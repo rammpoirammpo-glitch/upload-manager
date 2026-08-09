@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.2.3"
+version: "1.2.4"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,10 +35,11 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Fully automatic cloud folders: each watch path reads its own source folder
-  name and creates that exact folder on the cloud by itself (e.g. /downloads/movies
-  auto-creates a single "movies" folder with all films, /downloads/series a single
-  "series" folder with all shows). The manual "Remote folder" field has been removed
-  - nothing to type, everything automatic. Includes all previous stability fixes.
+  New: Mixdrop provider + per-path provider routing. Add Mixdrop as a provider
+  (email + API key) and pick which provider(s) each watch path uses, so you can
+  send movies to one server (e.g. EarnVids) and series to Mixdrop. Each watch
+  path keeps its automatic cloud folder from the source folder name. Files now
+  upload only to the providers you chose for that path. Includes all previous
+  stability fixes.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

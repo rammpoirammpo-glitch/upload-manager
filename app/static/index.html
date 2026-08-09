@@ -77,12 +77,15 @@
   <section id="tab-paths" class="hidden">
     <div class="panel">
       <h2>Watch Paths</h2>
-      <form onsubmit="event.preventDefault(); addPath();" class="row">
+      <form onsubmit="event.preventDefault(); addPath();" class="row" style="align-items:flex-end">
         <input id="pathInput" type="text" placeholder="/downloads/movies" class="grow">
+        <label style="font-size:12px">Providers
+          <select id="pathProviders" multiple size="3" class="grow"></select>
+        </label>
         <button class="btn">Add path</button>
       </form>
       <div id="pathList"></div>
-      <p class="hint">Files are scanned for stability before being queued. Incomplete files (with .part, .!qb, etc.) are skipped automatically. Each watch path automatically gets its own cloud folder with the same name as the source folder (e.g. /downloads/movies uploads all films into a single "movies" folder, /downloads/series into a single "series" folder). The folder is created on the cloud automatically &mdash; nothing to type.</p>
+      <p class="hint">Files are scanned for stability before being queued. Incomplete files (with .part, .!qb, etc.) are skipped automatically. Each watch path automatically gets its own cloud folder with the same name as the source folder (e.g. /downloads/movies uploads all films into a single "movies" folder). Select one or more <b>Providers</b> to send that path's files only to those providers (e.g. movies to your movie server, series to Mixdrop). If none selected, the path uses all enabled providers.</p>
     </div>
   </section>
 

@@ -27,6 +27,19 @@ def _enabled_providers():
     return out
 
 
+def _selected_providers(providers, provider_ids):
+    """Filter the enabled providers down to the ones chosen for a watch path.
+
+    An empty provider_ids means "use all enabled providers". Otherwise it is a
+    comma-separated list of provider ids that restrict the upload target so each
+    watch path (e.g. movies vs series) can go to its own provider."""
+    ids = [int(x) for x in (provider_ids or "").split(",") if x.strip().isdigit()]
+    if not ids:
+        return providers
+    wanted = set(ids)
+    return [p for p in providers if p["id"] in wanted]
+
+
 class QueueScheduler(threading.Thread):
     def __init__(self, notifier=None, concurrency=None):
         super().__init__(daemon=True, name="queue-scheduler")
@@ -105,15 +118,15 @@ class QueueScheduler(threading.Thread):
                     "SELECT * FROM queue_items WHERE id=?", (item_id,)).fetchone()
             if not item:
                 return
-            providers = _enabled_providers()
+            providers = _selected_providers(_enabled_providers(), item["provider_ids"])
             if not providers:
                 with connect() as conn:
                     conn.execute(
                         "UPDATE queue_items SET status='pending', updated_at=datetime('now') "
                         "WHERE id=?", (item_id,))
                 logger.warning(
-                    "No enabled provider configured yet; item %s stays pending",
-                    item["filename"])
+                    "No enabled provider for item %s (path providers: %s); stays pending",
+                    item["filename"], item["provider_ids"] or "all")
                 return
             with connect() as conn:
                 for p in providers:

@@ -248,6 +248,21 @@ async function deleteProvider(id) {
 
 /* ---------------- Watch paths ---------------- */
 
+let _providersForSelect = [];
+
+async function loadProvidersForSelect() {
+  let d;
+  try { d = await api("/api/providers"); } catch (e) { return; }
+  _providersForSelect = (d.providers || []).map(p => ({ id: p.id, name: p.name, enabled: p.enabled }));
+}
+
+function providerOptions(selectedIds) {
+  const sel = new Set(Array.isArray(selectedIds) ? selectedIds : String(selectedIds || "").split(",").filter(x => x));
+  return _providersForSelect.map(p =>
+    `<option value="${p.id}"${sel.has(String(p.id)) ? " selected" : ""}>${esc(p.name)}${p.enabled ? "" : " (off)"}</option>`
+  ).join("");
+}
+
 async function refreshPaths() {
   let d;
   try { d = await api("/api/watchpaths"); } catch (e) { return; }
@@ -261,11 +276,18 @@ async function refreshPaths() {
     const remoteBadge = remoteDir
       ? `<span class="st-badge st-completed">cloud folder: ${esc(remoteDir)} (auto)</span>`
       : "";
+    const provLabel = p.provider_ids
+      ? `providers: ${esc(p.provider_ids)}`
+      : "providers: all";
     return `<div class="card path-card">
       <div><code>${esc(p.path)}</code> ${existsBadge}
         <span class="st-badge ${p.enabled ? "st-completed" : "st-skipped"}">${p.enabled ? "enabled" : "disabled"}</span>
-        ${remoteBadge}</div>
-      <div class="row" style="margin-top:6px">
+        ${remoteBadge} <span class="st-badge st-info">${provLabel}</span></div>
+      <div class="row" style="margin-top:6px;align-items:flex-end">
+        <label style="font-size:12px">Providers
+          <select id="pp-${p.id}" multiple size="3" class="grow">${providerOptions(p.provider_ids)}</select>
+        </label>
+        <button class="btn small" onclick="savePathProviders(${p.id})">Save</button>
         <button class="btn small" onclick="togglePath(${p.id}, ${p.enabled ? 0 : 1})">${p.enabled ? "Disable" : "Enable"}</button>
         <button class="btn small danger" onclick="deletePath(${p.id})">Remove</button>
       </div>
@@ -277,9 +299,23 @@ async function addPath() {
   const input = $("#pathInput");
   const v = input.value.trim();
   if (!v) return alert("Path is required");
-  try { await api("/api/watchpaths", { method: "POST", body: JSON.stringify({ path: v, enabled: true }) }); }
+  const sel = Array.from($("#pathProviders").selectedOptions).map(o => o.value);
+  const body = { path: v, enabled: true };
+  if (sel.length) body.provider_ids = sel.join(",");
+  try { await api("/api/watchpaths", { method: "POST", body: JSON.stringify(body) }); }
   catch (e) { return alert(e.message); }
   input.value = "";
+  const psel = $("#pathProviders");
+  if (psel) Array.from(psel.options).forEach(o => o.selected = false);
+  refreshPaths();
+}
+
+async function savePathProviders(id) {
+  const el = $("#pp-" + id);
+  if (!el) return;
+  const sel = Array.from(el.selectedOptions).map(o => o.value).join(",");
+  try { await api("/api/watchpaths/" + id, { method: "PUT", body: JSON.stringify({ enabled: true, provider_ids: sel }) }); }
+  catch (e) { return alert(e.message); }
   refreshPaths();
 }
 
@@ -400,6 +436,7 @@ $("#btnPause").onclick = async () => {
 
 async function init() {
   await loadProviderTypes();
+  await loadProvidersForSelect();
   await loadSettings();
   await refreshAll();
   setInterval(() => { refreshStats(); refreshQueue(); }, 3000);

@@ -68,6 +68,7 @@ table.queue th { color: var(--muted); font-weight: 600; }
 .st-completed { background: rgba(52,192,124,.15); color: var(--ok); }
 .st-failed { background: rgba(255,95,109,.15); color: var(--err); }
 .st-skipped { background: rgba(139,148,171,.15); color: var(--muted); }
+.st-info { background: rgba(79,140,255,.15); color: var(--accent); text-transform: none; }
 .chip { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 20px; margin: 2px 4px 2px 0; }
 .chip-ok { background: rgba(52,192,124,.15); color: var(--ok); }
 .chip-err { background: rgba(255,95,109,.15); color: var(--err); }
