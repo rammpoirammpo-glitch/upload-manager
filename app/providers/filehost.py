@@ -11,7 +11,7 @@ class FileHostProvider(BaseProvider):
     display_name = "File Host API (Xvids-style: StreamHG, EarnVids, Vidoza, ...)"
     field_schema = [
         {"name": "platform", "label": "Platform preset (optional)", "type": "select",
-         "options": ["", "StreamHG", "EarnVids", "Vidoza", "Generic"],
+         "options": ["", "StreamHG", "EarnVids", "Vidoza", "LuluStream", "Generic"],
          "help": "Auto-fills the API host. Choose 'Generic' and type the host manually if yours is not listed."},
         {"name": "api_host", "label": "API host", "type": "text", "required": True,
          "help": "e.g. https://streamhgapi.com  (the domain, without /api)"},
@@ -28,6 +28,8 @@ class FileHostProvider(BaseProvider):
     PRESET_HOSTS = {
         "StreamHG": "https://streamhgapi.com",
         "EarnVids": "https://earnvidsapi.com",
+        "Vidoza": "https://vidoza.net",
+        "LuluStream": "https://lulustream.com",
     }
 
     def _api(self):
@@ -47,6 +49,31 @@ class FileHostProvider(BaseProvider):
         if int(data.get("status", 200)) != 200:
             raise RuntimeError(f"API error {data.get('status')}: {data.get('msg', '')}")
         return data
+
+    def _resolve_folder_id(self, remote_path):
+        cfg_fld = (self.config.get("fld_id") or "").strip()
+        if cfg_fld:
+            return cfg_fld
+        remote_path = (remote_path or "").replace("\\", "/").strip("/")
+        name = remote_path.split("/")[0] if remote_path else ""
+        if not name:
+            return ""
+        try:
+            data = self._call("/api/folder/list", {"key": self._key()})
+        except Exception:
+            return ""
+        result = data.get("result") or {}
+        folders = (result.get("folders") or []) if isinstance(result, dict) else []
+        for f in folders:
+            if str(f.get("name")) == name:
+                return str(f.get("fld_id", ""))
+        try:
+            created = self._call("/api/folder/create",
+                                 {"key": self._key(), "name": name})
+        except Exception:
+            return ""
+        res = created.get("result") or {}
+        return str(res.get("fld_id", "")) if isinstance(res, dict) else ""
 
     def _get_upload_url(self):
         url = (self.config.get("upload_url") or "").strip()
@@ -99,7 +126,7 @@ class FileHostProvider(BaseProvider):
                 ("file_title", title),
                 ("file", (os.path.basename(local_path), file_handle, "application/octet-stream")),
             ]
-            fld = (self.config.get("fld_id") or "").strip()
+            fld = self._resolve_folder_id(remote_path)
             if fld:
                 fields.append(("fld_id", fld))
             cat = (self.config.get("cat_id") or "").strip()

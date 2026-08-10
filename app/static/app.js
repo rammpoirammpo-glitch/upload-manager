@@ -146,6 +146,8 @@ function renderProviderFields() {
 const PRESET_HOSTS = {
   StreamHG: "https://streamhgapi.com",
   EarnVids: "https://earnvidsapi.com",
+  Vidoza: "https://vidoza.net",
+  LuluStream: "https://lulustream.com",
 };
 
 function attachProviderPresets() {
