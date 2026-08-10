@@ -26,7 +26,7 @@ description: >-
 
   This app is fully separate from any other app in this store and is provided
   using a community-maintained image (hotio).
-developer: Your Name
+developer: Whisparr
 website: https://whisparr.com
 repo: https://github.com/Whisparr/Whisparr
 support: https://github.com/Whisparr/Whisparr/issues
@@ -38,6 +38,7 @@ dependencies:
   - transmission
 defaultUsername: ""
 defaultPassword: ""
+torOnly: false
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
