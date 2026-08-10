@@ -29,7 +29,7 @@ class FileHostProvider(BaseProvider):
         "StreamHG": "https://streamhgapi.com",
         "EarnVids": "https://earnvidsapi.com",
         "Vidoza": "https://vidoza.net",
-        "LuluStream": "https://lulustream.com",
+        "LuluStream": "https://api.lulustream.com",
     }
 
     def _api(self):
