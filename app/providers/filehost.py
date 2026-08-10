@@ -55,7 +55,8 @@ class FileHostProvider(BaseProvider):
         if cfg_fld:
             return cfg_fld
         remote_path = (remote_path or "").replace("\\", "/").strip("/")
-        name = remote_path.split("/")[0] if remote_path else ""
+        parts = remote_path.split("/")
+        name = parts[0] if len(parts) > 1 else ""
         if not name:
             return ""
         try:
