@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-whisparr
 category: media
 name: Whisparr
-version: "2.2.0.141"
+version: "0.1.0.49"
 tagline: Manage your adult media collection
 icon: https://i.imgur.com/3jVS6lO.png
 description: >-
