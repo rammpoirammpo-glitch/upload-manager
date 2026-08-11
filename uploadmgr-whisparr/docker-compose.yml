@@ -9,8 +9,9 @@ services:
       PROXY_AUTH_WHITELIST: "/api/*"
 
   server:
-    # thespad Whisparr image (multi-arch amd64/aarch64/armhf), pinned to digest.
-    image: ghcr.io/thespad/whisparr:latest@sha256:5b25ef072d9e186a2307146a2585268495188546c1fe282bd795ce38eaf5cc77
+    # hotio tracks the current Whisparr (2.2.0) and is verified to pull+run on
+    # umbrelOS. Pinned to the latest manifest digest for stability.
+    image: ghcr.io/hotio/whisparr:latest@sha256:c97884f746e7209c42412fb1cdcc232c9711d273675e1ebb96df9da2225aadd5
     environment:
       - PUID=1000
       - PGID=1000
