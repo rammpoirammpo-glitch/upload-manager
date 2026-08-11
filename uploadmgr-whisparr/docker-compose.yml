@@ -1,4 +1,4 @@
-version: "3.7"
+version: "3.8"
 
 services:
   app_proxy:
@@ -9,15 +9,18 @@ services:
       PROXY_AUTH_WHITELIST: "/api/*"
 
   server:
-    # hotio tracks the current Whisparr (2.2.0) and is verified to pull+run on
-    # umbrelOS. Pinned to the latest manifest digest for stability.
-    image: ghcr.io/hotio/whisparr:latest@sha256:c97884f746e7209c42412fb1cdcc232c9711d273675e1ebb96df9da2225aadd5
+    # thespad Whisparr image (multi-arch amd64/arm64), pinned to latest digest.
+    image: ghcr.io/thespad/whisparr:latest@sha256:5b25ef072d9e186a2307146a2585268495188546c1fe282bd795ce38eaf5cc77
     environment:
       - PUID=1000
       - PGID=1000
       - UMASK=022
     volumes:
-      - ${APP_DATA_DIR}/data/config:/config
+      # Config — maps to umbrelOS app-data (Whisparr keeps its config in /config)
+      - ${APP_DATA_DIR}/data:/config
+      # Media library — umbrelOS shared storage
+      - ${UMBREL_ROOT}/data/storage:/media
+      # Downloads from your download client (Transmission on umbrelOS)
       - ${UMBREL_ROOT}/data/storage/downloads:/downloads
     restart: on-failure
 
@@ -29,7 +32,7 @@ services:
     user: "1000:1000"
     restart: on-failure
     volumes:
-      - ${APP_DATA_DIR}/data/config:/config
+      - ${APP_DATA_DIR}/data:/config
       - ${UMBREL_ROOT}/data/storage/downloads:/downloads
     environment:
       APP_ID: "uploadmgr-whisparr"
