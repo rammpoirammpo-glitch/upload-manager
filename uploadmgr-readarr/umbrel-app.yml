@@ -1,0 +1,52 @@
+manifestVersion: 1.1
+id: uploadmgr-readarr
+category: media
+name: Readarr
+version: "0.4.18.2805"
+tagline: Your book collection manager
+icon: https://readarr.com/img/logo.png
+description: >-
+  Readarr is an ebook and audiobook collection manager for Usenet and BitTorrent
+  users. It can monitor multiple RSS feeds for new books from your favorite
+  authors and will grab, sort, and rename them. Note that only one type of a
+  given book is supported — if you want both an audiobook and ebook of a given
+  book you will need multiple instances.
+
+
+  🛠️ SETUP INSTRUCTIONS
+
+  Readarr on umbrelOS automatically connects to download clients installed from
+  the umbrelOS App Store. Simply install Transmission (or qBittorrent / SABnzbd)
+  and the connection is set up automatically.
+
+
+  All you need to do from there is add an indexer so Readarr can search for
+  books. Install Prowlarr from the umbrelOS App Store, add your indexers there,
+  and they become available in Readarr automatically (Prowlarr natively supports
+  Readarr).
+
+  This app is fully separate from any other app in this store.
+developer: Readarr
+website: https://readarr.com
+repo: https://github.com/Readarr/Readarr
+support: https://github.com/Readarr/Readarr/issues
+port: 8787
+gallery:
+  - https://readarr.com/img/logo.png
+path: ""
+dependencies:
+  - transmission
+defaultUsername: ""
+defaultPassword: ""
+torOnly: false
+permissions:
+  - STORAGE_DOWNLOADS
+releaseNotes: >-
+  Adds Readarr (latest, v0.4.18.2805) to this store as a standalone app,
+  separate from any other app. Uses the official umbrelOS
+  media-app-configurator so it auto-connects to Transmission (and optionally
+  qBittorrent/SABnzbd) installed from the umbrelOS App Store. Prowlarr natively
+  supports Readarr for automatic indexer sync. Image pinned to a fixed digest
+  for stability.
+submitter: rammpoirammpo-glitch
+submission: https://github.com/rammpoirammpo-glitch/upload-manager

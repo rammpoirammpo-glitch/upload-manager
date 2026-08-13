@@ -1,0 +1,48 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      # Format: <app-id>_<docker-service-name>_1
+      APP_HOST: uploadmgr-readarr_server_1
+      APP_PORT: 8787
+      PROXY_AUTH_WHITELIST: "/api/*"
+
+  server:
+    # linuxserver Readarr (latest stable develop build 0.4.18.2805), pinned to digest.
+    image: linuxserver/readarr:develop-version-0.4.18.2805@sha256:b6a7420770adeea5cac1f3ee5da606183d014e3f96fb473f3abd88ed11d9f344
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      # Persistent configuration (survives restarts and app updates)
+      - ${APP_DATA_DIR}/data/config:/config
+      # Shared downloads storage — same /downloads the *arr family uses on umbrelOS
+      - ${UMBREL_ROOT}/data/storage/downloads:/downloads
+    restart: on-failure
+
+  # umbrelOS "Media App Configurator": automatically wires Readarr to download
+  # clients (Transmission, optional qBittorrent/SABnzbd) installed from the
+  # umbrelOS App Store, the same way the official Readarr app auto-connects.
+  mac:
+    image: getumbrel/media-app-configurator:v1.3.2@sha256:9ff34bda1e36ffe5a028d2463f4aaa9f20b93e8bec4392da077137c56bea3c34
+    user: "1000:1000"
+    restart: on-failure
+    volumes:
+      - ${APP_DATA_DIR}/data/config:/config
+      - ${UMBREL_ROOT}/data/storage/downloads:/downloads
+    environment:
+      APP_ID: "uploadmgr-readarr"
+      APP_URL: "http://uploadmgr-readarr_server_1:8787"
+      TRANSMISSION_HOST: "transmission_server_1"
+      TRANSMISSION_PORT: 9091
+      ROOT_FOLDER: "/downloads/books"
+      # optional qBittorrent download client
+      QBITTORRENT_INSTALLED: ${APP_READARR_QBITTORRENT_INSTALLED:-"false"}
+      QBITTORRENT_HOST: "qbittorrent_server_1"
+      QBITTORRENT_PORT: 8080
+      # optional SABnzbd download client
+      SABNZBD_INSTALLED: ${APP_READARR_SABNZBD_INSTALLED:-"false"}
+      SABNZBD_HOST: "sabnzbd_web_1"
+      SABNZBD_PORT: 8080
+      SABNZBD_API_KEY: ${APP_READARR_SABNZBD_API_KEY:-""}
