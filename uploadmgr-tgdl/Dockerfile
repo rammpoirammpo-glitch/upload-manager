@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # a lightweight window manager, and every Qt/X11 library PySide6 needs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb x11vnc websockify novnc fluxbox x11-utils xauth xdg-utils \
-    fontconfig fonts-dejavu-core ttf-ubuntu-font-family \
+    fontconfig fonts-dejavu-core fonts-ubuntu \
     python3 python3-pip python3-venv \
     libgl1 libgl1-mesa-glx libegl1 libgles2 libglib2.0-0 libdbus-1-3 \
     libxcb1 libxcb-xinerama0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
