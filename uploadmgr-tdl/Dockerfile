@@ -1,4 +1,7 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
+
+# Automatically select/download the Go toolchain required by go.work/go.mod
+ENV GOTOOLCHAIN=auto
 
 RUN apk add --no-cache git ca-certificates build-base
 
