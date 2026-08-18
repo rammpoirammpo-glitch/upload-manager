@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-tdl
 category: utilities
 name: Telegram Downloader (tdl-web)
-version: "0.1.1"
+version: "0.1.2"
 tagline: Download, upload and forward Telegram files from your browser
 icon: https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
 description: >-
@@ -45,10 +45,14 @@ defaultUsername: ""
 defaultPassword: ""
 permissions: []
 releaseNotes: >-
+  v0.1.2: allow the app's /api/* JSON endpoints through the Umbrel app_proxy
+  so the dashboard fully works inside the Umbrel UI.
+
   v0.1.1: fix app showing as "not installed" on umbrelOS — the container now
   runs as root (Umbrel default) so it can open its state DB under /data and
-  actually start its web UI. Initial web UI release: full Telegram control
-  (login, browse, download, upload, forward) from the browser via a Go + gotd
-  backend.
+  actually start its web UI.
+
+  v0.1.0: initial web UI release — full Telegram control (login, browse,
+  download, upload, forward) from the browser via a Go + gotd backend.
 submitter: Upload Manager
 submission: https://github.com/rammpoirammpo-glitch/upload-manager
