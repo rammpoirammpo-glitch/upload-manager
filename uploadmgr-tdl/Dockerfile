@@ -15,12 +15,13 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/tdl-web .
 # ---- runtime ----
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S app && adduser -S -G app app
+# Runs as root (the Umbrel default). Umbrel mounts ${APP_DATA_DIR}/data at
+# /data owned by root, so a non-root container cannot open its bbolt state DB
+# and dies on startup (no UI). Root guarantees the app always starts.
+RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /out/tdl-web /usr/local/bin/tdl-web
 
-USER app
 WORKDIR /data
 
 # Listening port served through the Umbrel app_proxy.
@@ -28,5 +29,6 @@ EXPOSE 8080
 
 # tdl-web serves the API + embedded static UI. The app_proxy in
 # docker-compose maps the app to the Umbrel UI on port 8080.
-ENTRYPOINT ["/usr/local/bin/tdl-web"]
-CMD ["-http", ":8080", "-data", "/data"]
+# We mkdir -p /data first so the state DB always has a home.
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["mkdir -p /data && exec /usr/local/bin/tdl-web -http :8080 -data /data"]
