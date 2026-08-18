@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tdl-web · Telegram Downloader</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">tdl<span>-web</span></div>
+  <div id="account"></div>
+</header>
+
+<main>
+  <!-- 1. Configure -->
+  <section id="view-config" class="view">
+    <h2>Connect Telegram</h2>
+    <p class="sub">You need your Telegram <b>API_ID</b> and <b>API_HASH</b> from
+      <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a>.</p>
+    <form id="config-form">
+      <label>API ID
+        <input name="api_id" type="number" required placeholder="123456">
+      </label>
+      <label>API Hash
+        <input name="api_hash" type="text" required placeholder="0123456789abcdef...">
+      </label>
+      <label>Downloads folder (optional)
+        <input name="downloads_dir" type="text" placeholder="/data/downloads">
+      </label>
+      <button type="submit">Save & connect</button>
+      <div id="config-error" class="error"></div>
+    </form>
+  </section>
+
+  <!-- 2. Login -->
+  <section id="view-login" class="view hidden">
+    <h2>Sign in</h2>
+    <div class="tabs">
+      <button class="tab active" data-tab="qr">QR code</button>
+      <button class="tab" data-tab="code">Phone + code</button>
+    </div>
+
+    <div id="tab-qr" class="tabpane">
+      <p class="sub">Open Telegram → Settings → Devices → Scan QR code.</p>
+      <div id="qr-box" class="qr-box"></div>
+      <div id="qr-status" class="status"></div>
+      <button id="qr-new" class="secondary">New QR code</button>
+    </div>
+
+    <div id="tab-code" class="tabpane hidden">
+      <form id="code-form">
+        <label>Phone number
+          <input name="phone" type="text" required placeholder="+12345678901">
+        </label>
+        <div id="code-input" class="hidden">
+          <label>Verification code
+            <input name="code" type="text" placeholder="12345">
+          </label>
+        </div>
+        <button type="submit">Get code</button>
+      </form>
+    </div>
+
+    <div id="pwd-pane" class="hidden">
+      <form id="pwd-form">
+        <label>2FA password
+          <input name="password" type="password" required placeholder="Your 2FA password">
+        </label>
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+
+    <div id="login-status" class="status"></div>
+  </view>
+
+  <!-- 3. Main app -->
+  <section id="view-main" class="view hidden">
+    <aside id="dialogs">
+      <h2>Chats</h2>
+      <button id="refresh-dialogs" class="secondary">Refresh</button>
+      <select id="from-select" size="12"></select>
+      <div class="label">Upload / forward <b>to</b>:</div>
+      <select id="to-select"></select>
+    </aside>
+
+    <section class="content">
+      <div class="bar">
+        <button id="refresh-msgs" class="secondary">Refresh messages</button>
+        <button id="download-sel">Download selected</button>
+        <button id="forward-sel">Forward selected</button>
+        <button id="logout" class="danger">Log out</button>
+      </div>
+
+      <ul id="messages"></ul>
+
+      <div class="bar">
+        <h3>Upload</h3>
+        <form id="upload-form">
+          <input type="file" id="upload-file" required>
+          <input type="text" id="upload-caption" placeholder="Caption (optional)">
+          <button type="submit">Upload</button>
+        </form>
+      </div>
+
+      <h3>Activity</h3>
+      <ul id="transfers"></ul>
+    </section>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>

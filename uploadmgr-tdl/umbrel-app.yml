@@ -1,33 +1,38 @@
 manifestVersion: 1.1
 id: uploadmgr-tdl
 category: utilities
-name: Telegram Downloader (tdl)
-version: "0.20.3"
-tagline: Download, upload and forward Telegram files at full bandwidth
+name: Telegram Downloader (tdl-web)
+version: "0.1.0"
+tagline: Download, upload and forward Telegram files from your browser
 icon: https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
 description: >-
-  tdl is a blazing-fast, low-resource Telegram Downloader written in Go. It can
-  download files (even from protected chats), upload files to Telegram, forward
-  messages with automatic fallback, and export messages/members/subscribers to
-  JSON. It is much faster than the official client and takes advantage of your
-  full bandwidth.
+  tdl-web is a full graphical web interface for tdl, a blazing-fast, low
+  resource Telegram Downloader written in Go. Log in by scanning a QR code with
+  your Telegram app (or a phone + code), then browse your chats and messages,
+
+  download media to your umbrelOS device, upload files back to Telegram, and
+  forward messages between chats — all from the browser, no command line.
 
 
-  THIS APP IS A HEADLESS CLI UTILITY
+  ## First run
 
-  tdl is a command-line tool, not a web app, so it has no web dashboard. It runs
-  inside a container on your umbrelOS device. Use it from the terminal with:
+  1. Open the app in the Umbrel dashboard.
+  2. Enter your Telegram API_ID and API_HASH (free from my.telegram.org).
+  3. Scan the QR code with your Telegram app (or sign in with a phone + code).
+  4. Use the dashboard to download, upload and forward files.
 
-    docker exec -it uploadmgr-tdl_server_1 tdl login
 
-  For a quick start inside the container (set your API ID/HASH first):
+  ## Features
 
-    docker exec -it uploadmgr-tdl_server_1 sh
-    # then run: tdl login / tdl up / tdl dl
+  - QR-code / phone login, session persisted across restarts
+  - Browse chats/channels and their messages
+  - Download media (photos, documents, videos) to the device
+  - Upload local files to any chat
+  - Forward messages between chats
+  - Live progress for downloads and uploads
 
-  Persistent data (login session, config, downloads) is stored under this app's
-  data directory at /data inside the container.
-developer: Your Name
+  Downloads and your login session are stored under this app's data directory.
+developer: Upload Manager
 website: https://github.com/rammpoirammpo-glitch/upload-manager
 repo: https://github.com/iyear/tdl
 support: https://github.com/iyear/tdl/issues
@@ -40,7 +45,7 @@ defaultUsername: ""
 defaultPassword: ""
 permissions: []
 releaseNotes: >-
-  tdl v0.20.3. Added as a headless CLI app for the Upload Manager store.
-  AGPL-3.0 licensed (upstream project by iyear).
-submitter: Your Name
+  Initial web UI release. Full Telegram control (login, browse, download,
+  upload, forward) from the browser via a Go + gotd backend.
+submitter: Upload Manager
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

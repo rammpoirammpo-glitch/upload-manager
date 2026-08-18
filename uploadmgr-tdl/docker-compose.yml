@@ -11,8 +11,6 @@ services:
     # Published automatically by .github/workflows/build-tdl.yml.
     image: ghcr.io/rammpoirammpo-glitch/upload-manager/tdl:latest
     restart: on-failure
-    environment:
-      TDL_DATA_DIR: /data
     volumes:
-      # Persistent tdl session, config and downloads (survives restarts and app updates)
+      # Persistent Telegram session, config and downloads
       - ${APP_DATA_DIR}/data:/data
