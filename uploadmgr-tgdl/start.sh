@@ -32,8 +32,8 @@ fi
 # Provide a working .env (Telethon reads API_ID / API_HASH)
 if [ -f /data/.env.local ]; then cp /data/.env.local /data/.env 2>/dev/null || true; fi
 cd /data
-python3 -u src/gui.py
-
-echo "[start] app exited, stopping services..."
-kill $XVFB_PID 2>/dev/null || true
-exit 0
+# Run the GUI; if it crashes, log the error and keep the container (and the
+# noVNC desktop) alive so the app stays "running" and the cause is visible.
+python3 -u src/gui.py > /data/tgdl-gui.log 2>&1
+echo "[start] GUI exited (code $?). Keeping container alive for debugging."
+tail -f /dev/null

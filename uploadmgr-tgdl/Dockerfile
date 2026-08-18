@@ -14,11 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libgl1-mesa-glx libegl1 libgles2 libglib2.0-0 libdbus-1-3 \
     libxcb1 libxcb-xinerama0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
     libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xkb1 \
+    libxcb-image0 libxcb-randr0 libxcb-xinput0 libxau6 libpcre2-16-0 \
     libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 \
     libxrandr2 libxrender1 libxshmfence1 libxi6 libxext6 libsm6 libice6 \
     libasound2 libpulse0 libdouble-conversion3 libicu70 libdatrie1 libgraphite2-3 \
     libthai0 libharfbuzz0b libx11-xcb1 libxcomposite1 libxcursor1 libxdamage1 \
     libxfixes3 libxinerama1 libxkbfile1 libxss1 libxtst6 \
+    libcups2 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libsecret-1-0 \
     curl tini \
     && rm -rf /var/lib/apt/lists/*
 
@@ -29,11 +31,8 @@ RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 COPY app/ /opt/app-src/
 
-# Provide a working .env for the app (Telethon reads API_ID / API_HASH).
-RUN if [ -f /app/.env.local ]; then cp /app/.env.local /app/.env; fi
-
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+COPY start.sh /opt/app-src/start.sh
+RUN chmod +x /opt/app-src/start.sh
 
 EXPOSE 8080
 
@@ -41,4 +40,4 @@ ENV QT_QPA_PLATFORM=xcb \
     QT_X11_NO_MITSHM=1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/app/start.sh"]
+CMD ["/opt/app-src/start.sh"]
