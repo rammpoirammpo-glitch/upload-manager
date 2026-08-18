@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-tdl
 category: utilities
 name: Telegram Downloader (tdl-web)
-version: "0.1.4"
+version: "0.1.5"
 tagline: Download, upload and forward Telegram files from your browser
 icon: https://cdn.jsdelivr.net/gh/rammpoirammpo-glitch/upload-manager@main/uploadmgr-tdl/icon.svg
 description: >-
@@ -45,6 +45,10 @@ defaultUsername: ""
 defaultPassword: ""
 permissions: []
 releaseNotes: >-
+  v0.1.5: fix QR-code login actually completing — use a single background
+  accept loop that keeps the QR token fresh so scanning logs you in instead of
+  staying stuck on the "Sign in" page.
+
   v0.1.4: replace the PNG logo with a proper vector SVG icon so it displays in
   the Umbrel app card (Umbrel only shows vector SVGs).
 

@@ -41,6 +41,10 @@ func (s *Server) startQRLogin(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]any{"expires": expires})
 }
 
+func (s *Server) qrStatus(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, 200, s.svc.RegisterQRStatus())
+}
+
 func (s *Server) qrPNG(w http.ResponseWriter, r *http.Request) {
 	png, err := s.svc.QRPNG()
 	if err != nil {
@@ -54,22 +58,7 @@ func (s *Server) qrPNG(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) waitQR(w http.ResponseWriter, r *http.Request) {
-	done := make(chan error, 1)
-	go func() { done <- s.svc.BlockForQR(r.Context()) }()
-	select {
-	case <-r.Context().Done():
-		return
-	case err := <-done:
-		if err == nil {
-			s.writeJSON(w, 200, map[string]any{"ok": true})
-			return
-		}
-		if err.Error() == "password needed" {
-			s.writeJSON(w, 200, map[string]any{"needs_2fa": true})
-			return
-		}
-		s.writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
-	}
+	s.writeJSON(w, 200, s.svc.RegisterQRStatus())
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
@@ -272,6 +261,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/login/qr", s.startQRLogin)
 	mux.HandleFunc("GET /api/login/qr.png", s.qrPNG)
 	mux.HandleFunc("GET /api/login/qr/wait", s.waitQR)
+	mux.HandleFunc("GET /api/login/status", s.qrStatus)
 	mux.HandleFunc("POST /api/login/code", s.loginCode)
 	mux.HandleFunc("POST /api/login/code/submit", s.loginCodeSubmit)
 	mux.HandleFunc("POST /api/login/password", s.loginPassword)

@@ -93,11 +93,11 @@ document.querySelectorAll('.tab').forEach((b) => {
   });
 });
 
-function renderQR() {
+function renderQR(rev) {
   const box = $('qr-box');
   box.innerHTML = '';
   const img = document.createElement('img');
-  img.src = '/api/login/qr.png?v=' + Date.now();
+  img.src = '/api/login/qr.png?rev=' + (rev || 0);
   img.alt = 'QR code';
   img.width = 240;
   img.height = 240;
@@ -106,30 +106,42 @@ function renderQR() {
 
 async function startQR() {
   $('qr-status').textContent = 'Getting QR code...';
+  state.lastQrRev = -1;
   try {
     await api('/api/login/qr', { method: 'POST', body: '{}' });
-    renderQR();
     $('qr-status').textContent = 'Scan with Telegram. Refreshes automatically.';
-    // poll for acceptance
     clearInterval(state.qrTicker);
-    state.qrTicker = setInterval(async () => {
-      try {
-        const r = await api('/api/login/qr/wait');
-        if (r.ok) {
-          clearInterval(state.qrTicker);
-          toast('Logged in!');
-          await loadStatus();
-        } else if (r.needs_2fa) {
-          clearInterval(state.qrTicker);
-          $('pwd-pane').classList.remove('hidden');
-        } else if (r.error) {
-          $('qr-status').textContent = r.error;
-        }
-      } catch {}
-    }, 800);
+    state.qrTicker = setInterval(pollQR, 1000);
   } catch (err) {
     $('qr-status').textContent = err.message;
   }
+}
+
+async function pollQR() {
+  try {
+    const s = await api('/api/login/status');
+    if (s.status === 'done') {
+      clearInterval(state.qrTicker);
+      $('pwd-pane').classList.add('hidden');
+      toast('Logged in!');
+      await loadStatus();
+      return;
+    }
+    if (s.status === 'password') {
+      clearInterval(state.qrTicker);
+      $('pwd-pane').classList.remove('hidden');
+      return;
+    }
+    if (s.status === 'error') {
+      clearInterval(state.qrTicker);
+      $('qr-status').textContent = s.error;
+      return;
+    }
+    if (s.url && s.rev !== state.lastQrRev) {
+      state.lastQrRev = s.rev;
+      renderQR(s.rev);
+    }
+  } catch {}
 }
 $('qr-new').addEventListener('click', startQR);
 

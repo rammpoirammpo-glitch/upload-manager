@@ -22,7 +22,6 @@ import (
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
-	"github.com/gotd/td/telegram/auth/qrlogin"
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
@@ -99,8 +98,67 @@ type Service struct {
 	transfersMu sync.Mutex
 	transfers   map[string]*Transfer
 
-	qrToken   qrlogin.Token
-	qrTokenMu sync.Mutex
+	qrMu     sync.Mutex
+	qrCancel context.CancelFunc // cancels the active QR accept loop
+	qr       *loginSession
+}
+
+// loginSession holds the state of an in-progress QR login.
+type loginSession struct {
+	mu      sync.Mutex
+	pending bool   // a token is available to render
+	url     string // current QR URL
+	rev     int64  // bumped whenever url changes
+	expires int64  // unix seconds
+	status  string // pending | password | done | error
+	err     string
+}
+
+func (l *loginSession) get(url *string, expires *int64, rev *int64, status *string, errMsg *string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if url != nil {
+		*url = l.url
+	}
+	if expires != nil {
+		*expires = l.expires
+	}
+	if rev != nil {
+		*rev = l.rev
+	}
+	if status != nil {
+		*status = l.status
+	}
+	if errMsg != nil {
+		*errMsg = l.err
+	}
+}
+
+// setURL atomically refreshes the QR token and bumps the revision.
+func (l *loginSession) setURL(url string, expires int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.url = url
+	l.expires = expires
+	l.pending = true
+	l.rev++
+}
+
+func (l *loginSession) setStatus(status string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.status = status
+}
+
+func (l *loginSession) setError(err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.status = "error"
+	l.err = err.Error()
+}
+
+func (l *loginSession) close() {
+	l.setStatus("done")
 }
 
 var errNotConfigured = errors.New("telegram API_ID and API_HASH are not set")
@@ -264,32 +322,111 @@ func (s *Service) CurrentStatus(ctx context.Context) AuthState {
 
 // ---- login ----
 
-// StartQRLogin exports a fresh QR token and returns its URL + expiry.
+// StartQRLogin exports a fresh QR token, launches the background accept
+// loop that keeps it current, and returns the URL + its expiry.
 func (s *Service) StartQRLogin(ctx context.Context) (string, int64, error) {
 	cl, err := s.ensureReady()
 	if err != nil {
 		return "", 0, err
 	}
-	qr := cl.QR()
-	token, err := qr.Export(ctx)
-	if err != nil {
-		return "", 0, err
-	}
-	s.qrTokenMu.Lock()
-	s.qrToken = token
-	s.qrTokenMu.Unlock()
-	return token.URL(), token.Expires().Unix(), nil
+	st := s.loginSessionLocked()
+	s.startQRLoop(cl, st)
+	return st.url, st.expires, nil
 }
 
-func (s *Service) QRTokenURL() string {
-	s.qrTokenMu.Lock()
-	defer s.qrTokenMu.Unlock()
-	return s.qrToken.URL()
+func (s *Service) loginSessionLocked() *loginSession {
+	s.qrMu.Lock()
+	defer s.qrMu.Unlock()
+	if s.qr == nil {
+		s.qr = &loginSession{status: "revoked"}
+	}
+	return s.qr
+}
+
+// startQRLoop runs a single background accept loop. It keeps a valid QR
+// token current by re-exporting on expiry, so the page stays renderable
+// until the user scans, and mirrors state into the loginSession.
+func (s *Service) startQRLoop(cl *telegram.Client, st *loginSession) {
+	s.qrMu.Lock()
+	if s.qrCancel != nil {
+		s.qrCancel()
+	}
+	loopCtx, cancel := context.WithCancel(context.Background())
+	s.qrCancel = cancel
+	s.qrMu.Unlock()
+
+	qr := cl.QR()
+	token, err := qr.Export(loopCtx)
+	if err != nil {
+		st.setError(err)
+		return
+	}
+	st.setURL(token.URL(), token.Expires().Unix())
+
+	go func() {
+		defer func() {
+			s.qrMu.Lock()
+			s.qrCancel = nil
+			s.qrMu.Unlock()
+		}()
+		for {
+			if loopCtx.Err() != nil {
+				return
+			}
+			_, err := qr.Accept(loopCtx, token)
+			if err == nil {
+				st.setStatus("done")
+				return
+			}
+			if tgerr.Is(err, "SESSION_PASSWORD_NEEDED") {
+				st.setStatus("password")
+				return
+			}
+			if !loginTokenExpired(err) {
+				st.setError(err)
+				return
+			}
+			// Token expired or superseded: re-export a fresh one.
+			reAuth, reErr := qr.Export(loopCtx)
+			if reErr != nil {
+				st.setError(reErr)
+				return
+			}
+			token = reAuth
+			st.setURL(token.URL(), token.Expires().Unix())
+		}
+	}()
+}
+
+// loginTokenExpired reports whether a QR accept error means the token
+// must be refreshed (or the login was superseded).
+func loginTokenExpired(err error) bool {
+	return tgerr.Is(err, "AUTH_TOKEN_EXPIRED") ||
+		tgerr.Is(err, "LOGIN_TOKEN_EXPIRED")
+}
+
+// QRStatus exposes the current QR login state to the API.
+type QRStatus struct {
+	Status  string `json:"status"`
+	URL     string `json:"url,omitempty"`
+	Expires int64  `json:"expires"`
+	Rev     int64  `json:"rev"`
+	Error   string `json:"error,omitempty"`
+}
+
+func (s *Service) RegisterQRStatus() QRStatus {
+	st := s.loginSessionLocked()
+	var url string
+	var rev int64
+	var expires int64
+	var status, errText string
+	st.get(&url, &expires, &rev, &status, &errText)
+	return QRStatus{Status: status, URL: url, Expires: expires, Rev: rev, Error: errText}
 }
 
 // QRPNG renders the current QR token as a PNG image.
 func (s *Service) QRPNG() ([]byte, error) {
-	url := s.QRTokenURL()
+	url := s.currentURL()
 	if url == "" {
 		return nil, errors.New("no pending QR token")
 	}
@@ -300,26 +437,11 @@ func (s *Service) QRPNG() ([]byte, error) {
 	return qr.PNG(280)
 }
 
-// BlockForQR waits until the QR token is accepted.
-func (s *Service) BlockForQR(ctx context.Context) error {
-	cl, err := s.ensureReady()
-	if err != nil {
-		return err
-	}
-	s.qrTokenMu.Lock()
-	token := s.qrToken
-	s.qrTokenMu.Unlock()
-	if token.Empty() {
-		return errors.New("no pending QR token")
-	}
-	_, err = cl.QR().Accept(ctx, token)
-	if err != nil {
-		if tgerr.Is(err, "SESSION_PASSWORD_NEEDED") {
-			return errNeedsPassword
-		}
-		return err
-	}
-	return nil
+func (s *Service) currentURL() string {
+	st := s.loginSessionLocked()
+	var url string
+	st.get(&url, nil, nil, nil, nil)
+	return url
 }
 
 // SubmitPassword completes a 2FA-protected login.
