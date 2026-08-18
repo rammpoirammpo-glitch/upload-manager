@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-whisparr
 category: media
 name: Whisparr
-version: "0.1.0.49"
+version: "2.2.0.108"
 tagline: Manage your adult media collection
 icon: https://i.imgur.com/3jVS6lO.png
 description: >-
@@ -47,10 +47,9 @@ torOnly: false
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Adds Whisparr to this store as a standalone app, separate from Upload Manager.
-  Uses the official umbrelOS media-app-configurator so it auto-connects to
-  Transmission (and optionally qBittorrent/SABnzbd) installed from the umbrelOS
-  App Store. Indexers are added via Prowlarr or directly. Image pinned to a fixed
-  digest for stability.
+  Updated Whisparr to v2.2.0-release.108 (thespad image, latest digest). To
+  apply the update, update/restart the container from the Whisparr app page
+  (or reinstall). Image digest pinned to
+  sha256:085e11bd85dd5f6d7933d1feb1047f1e23a80b5c5c1749f07cf7725747b46d0c.
 submitter: rammpoirammpo-glitch
 submission: https://github.com/rammpoirammpo-glitch/upload-manager
