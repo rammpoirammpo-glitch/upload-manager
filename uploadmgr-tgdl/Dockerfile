@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/app-src
 
 COPY app/requirements.txt /opt/app-src/requirements.txt
-RUN python3 -m pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 COPY app/ /opt/app-src/
 
