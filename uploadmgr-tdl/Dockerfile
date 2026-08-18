@@ -19,9 +19,13 @@ RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S tdl && adduser -S -G tdl tdl
 
 COPY --from=builder /out/tdl /usr/local/bin/tdl
+COPY web/ /web/
+COPY start.sh /usr/local/bin/tdl-start.sh
+RUN chmod +x /usr/local/bin/tdl-start.sh
 
 USER tdl
 WORKDIR /data
 
-ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["while true; do sleep 3600; done"]
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/tdl-start.sh"]

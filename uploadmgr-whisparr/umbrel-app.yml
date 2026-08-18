@@ -4,7 +4,7 @@ category: media
 name: Whisparr
 version: "2.2.0.108"
 tagline: Manage your adult media collection
-icon: https://i.imgur.com/3jVS6lO.png
+icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-whisparr/icon.svg
 description: >-
   Whisparr is an adult media collection manager for Usenet and BitTorrent users.
   It can monitor multiple RSS feeds for new movies and scenes and will interface
@@ -37,7 +37,7 @@ repo: https://github.com/Whisparr/Whisparr
 support: https://github.com/Whisparr/Whisparr/issues
 port: 6969
 gallery:
-  - https://i.imgur.com/3jVS6lO.png
+  - https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-whisparr/icon.svg
 path: ""
 dependencies:
   - transmission

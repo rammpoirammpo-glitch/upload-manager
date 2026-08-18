@@ -4,7 +4,7 @@ category: utilities
 name: Telegram Downloader (tdl)
 version: "0.20.3"
 tagline: Download, upload and forward Telegram files at full bandwidth
-icon: https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
+icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-tdl/icon.svg
 description: >-
   tdl is a blazing-fast, low-resource Telegram Downloader written in Go. It can
   download files (even from protected chats), upload files to Telegram, forward
@@ -27,13 +27,13 @@ description: >-
 
   Persistent data (login session, config, downloads) is stored under this app's
   data directory at /data inside the container.
-developer: Your Name
+developer: rammpoirammpo-glitch
 website: https://github.com/rammpoirammpo-glitch/upload-manager
 repo: https://github.com/iyear/tdl
 support: https://github.com/iyear/tdl/issues
-port: ""
+port: 8080
 gallery:
-  - https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
+  - https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-tdl/icon.svg
 path: ""
 dependencies: []
 defaultUsername: ""
@@ -42,5 +42,5 @@ permissions: []
 releaseNotes: >-
   tdl v0.20.3. Added as a headless CLI app for the Upload Manager store.
   AGPL-3.0 licensed (upstream project by iyear).
-submitter: Your Name
+submitter: rammpoirammpo-glitch
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

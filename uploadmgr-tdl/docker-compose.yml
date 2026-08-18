@@ -1,6 +1,12 @@
 version: "3.8"
 
 services:
+  app_proxy:
+    environment:
+      # Format: <app-id>_<docker-service-name>_1
+      APP_HOST: uploadmgr-tdl_server_1
+      APP_PORT: 8080
+
   server:
     # Published automatically by .github/workflows/build-tdl.yml.
     image: ghcr.io/rammpoirammpo-glitch/upload-manager/tdl:latest

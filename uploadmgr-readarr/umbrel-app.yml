@@ -4,7 +4,7 @@ category: media
 name: Readarr
 version: "0.4.18.2805"
 tagline: Your book collection manager
-icon: https://readarr.com/img/logo.png
+icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-readarr/icon.svg
 description: >-
   Readarr is an ebook and audiobook collection manager for Usenet and BitTorrent
   users. It can monitor multiple RSS feeds for new books from your favorite
@@ -32,7 +32,7 @@ repo: https://github.com/Readarr/Readarr
 support: https://github.com/Readarr/Readarr/issues
 port: 8787
 gallery:
-  - https://readarr.com/img/logo.png
+  - https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-readarr/icon.svg
 path: ""
 dependencies:
   - transmission

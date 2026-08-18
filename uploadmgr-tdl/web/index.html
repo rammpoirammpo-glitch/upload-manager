@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tdl — Telegram Downloader</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1b2d;color:#e8eef7;margin:0;padding:40px 20px;display:flex;justify-content:center}
+  .card{max-width:620px;background:#16263d;border:1px solid #2a3d5c;border-radius:14px;padding:32px}
+  h1{font-size:22px;margin-top:0;color:#7fd4ff}
+  code{background:#0f1b2d;padding:2px 6px;border-radius:6px;color:#7fffd4}
+  pre{background:#0f1b2d;padding:14px;border-radius:8px;overflow:auto;font-size:13px}
+  p{line-height:1.6}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>tdl — Telegram Downloader</h1>
+    <p>This app is a <strong>headless command-line tool</strong>. It has no web
+       dashboard; this page only confirms the container is running. Use tdl
+       from the terminal on your umbrelOS device with <code>docker exec</code>:</p>
+    <pre>docker exec -it uploadmgr-tdl_server_1 tdl login
+docker exec -it uploadmgr-tdl_server_1 tdl up --path /data/file</pre>
+    <p>Persistent data (login session, config, downloads) lives under this
+       app's data directory at <code>/data</code>.</p>
+  </div>
+</body>
+</html>
