@@ -1,0 +1,19 @@
+{
+    "download_path": "downloads",
+    "download_limit": 5,
+    "initial_fetch_limit": 500,
+    "max_speed_kb": 0,
+    "forum_auto_separation": true,
+    "rename_duplicates": true,
+    "use_message_date": true,
+    "prefix_file_date": true,
+    "dark_mode": true,
+    "proxy": {
+        "enabled": false,
+        "type": "SOCKS5",
+        "host": "",
+        "port": "",
+        "user": "",
+        "pass": ""
+    }
+}
