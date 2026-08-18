@@ -3,7 +3,7 @@ version: "3.8"
 services:
   server:
     # Published automatically by .github/workflows/build-tdl.yml.
-    image: ghcr.io/rammpoirammpo-glitch/tdl:latest
+    image: ghcr.io/rammpoirammpo-glitch/upload-manager/tdl:latest
     restart: on-failure
     environment:
       TDL_DATA_DIR: /data
