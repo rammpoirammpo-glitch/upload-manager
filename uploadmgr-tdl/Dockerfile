@@ -25,10 +25,11 @@ COPY --from=builder /out/tdl-web /usr/local/bin/tdl-web
 WORKDIR /data
 
 # Listening port served through the Umbrel app_proxy.
-EXPOSE 8080
+# Uses 8050 to avoid clashing with anything already on 8080.
+EXPOSE 8050
 
 # tdl-web serves the API + embedded static UI. The app_proxy in
-# docker-compose maps the app to the Umbrel UI on port 8080.
+# docker-compose maps the app to the Umbrel UI on port 8050.
 # We mkdir -p /data first so the state DB always has a home.
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["mkdir -p /data && exec /usr/local/bin/tdl-web -http :8080 -data /data"]
+CMD ["mkdir -p /data && exec /usr/local/bin/tdl-web -http :8050 -data /data"]

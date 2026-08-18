@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-tdl
 category: utilities
 name: Telegram Downloader (tdl-web)
-version: "0.1.2"
+version: "0.1.3"
 tagline: Download, upload and forward Telegram files from your browser
 icon: https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
 description: >-
@@ -36,7 +36,7 @@ developer: Upload Manager
 website: https://github.com/rammpoirammpo-glitch/upload-manager
 repo: https://github.com/iyear/tdl
 support: https://github.com/iyear/tdl/issues
-port: 8080
+port: 8050
 gallery:
   - https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
 path: ""
@@ -45,6 +45,9 @@ defaultUsername: ""
 defaultPassword: ""
 permissions: []
 releaseNotes: >-
+  v0.1.3: change app listening port from 8080 to 8050 to avoid any clash with
+  port 8080 on the device.
+
   v0.1.2: allow the app's /api/* JSON endpoints through the Umbrel app_proxy
   so the dashboard fully works inside the Umbrel UI.
 
