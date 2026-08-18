@@ -1,4 +1,0 @@
-app/src/build/
-app/src/dist/
-app/**/__pycache__/
-app/*.pyc
