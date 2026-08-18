@@ -73,15 +73,7 @@ func (s *Server) waitQR(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
-	st := s.svc.CurrentStatus(r.Context())
-	if st.Status == "not_configured" {
-		cfg := s.svc.GetConfig()
-		st.Configured = false
-		_ = cfg
-		s.writeJSON(w, 200, st)
-		return
-	}
-	s.writeJSON(w, 200, st)
+	s.writeJSON(w, 200, s.svc.CurrentStatus(r.Context()))
 }
 
 func (s *Server) setConfig(w http.ResponseWriter, r *http.Request) {

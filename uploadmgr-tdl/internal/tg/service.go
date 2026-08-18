@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/skip2/go-qrcode"
 	"go.etcd.io/bbolt"
 	"go.uber.org/zap"
-	"github.com/skip2/go-qrcode"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
@@ -88,13 +88,13 @@ type AuthState struct {
 
 // Service wraps a gotd client plus HTTP-facing convenience methods.
 type Service struct {
-	mu       sync.Mutex
-	db       *bbolt.DB
-	dataDir  string
-	cfg      Config
-	client   *telegram.Client
-	cancel   context.CancelFunc
-	ready    chan struct{} // closed once the client is connected
+	mu      sync.Mutex
+	db      *bbolt.DB
+	dataDir string
+	cfg     Config
+	client  *telegram.Client
+	cancel  context.CancelFunc
+	ready   chan struct{} // closed once the client is connected
 
 	transfersMu sync.Mutex
 	transfers   map[string]*Transfer
@@ -166,18 +166,6 @@ func (s *Service) SetConfig(ctx context.Context, c Config) error {
 		return err
 	}
 	return s.connect(ctx)
-}
-
-func (s *Service) GetConfig() Config {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.cfg
-}
-
-func (s *Service) IsConfigured() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.cfg.APIID != 0 && s.cfg.APIHash != ""
 }
 
 // ---- client lifecycle ----
