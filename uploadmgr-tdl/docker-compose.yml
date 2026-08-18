@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  server:
+    # Published automatically by .github/workflows/build-tdl.yml.
+    image: ghcr.io/rammpoirammpo-glitch/tdl:latest
+    restart: on-failure
+    environment:
+      TDL_DATA_DIR: /data
+    volumes:
+      # Persistent tdl session, config and downloads (survives restarts and app updates)
+      - ${APP_DATA_DIR}/data:/data

@@ -1,0 +1,46 @@
+manifestVersion: 1.1
+id: uploadmgr-tdl
+category: utilities
+name: Telegram Downloader (tdl)
+version: "0.20.3"
+tagline: Download, upload and forward Telegram files at full bandwidth
+icon: https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
+description: >-
+  tdl is a blazing-fast, low-resource Telegram Downloader written in Go. It can
+  download files (even from protected chats), upload files to Telegram, forward
+  messages with automatic fallback, and export messages/members/subscribers to
+  JSON. It is much faster than the official client and takes advantage of your
+  full bandwidth.
+
+
+  THIS APP IS A HEADLESS CLI UTILITY
+
+  tdl is a command-line tool, not a web app, so it has no web dashboard. It runs
+  inside a container on your umbrelOS device. Use it from the terminal with:
+
+    docker exec -it uploadmgr-tdl_server_1 tdl login
+
+  For a quick start inside the container (set your API ID/HASH first):
+
+    docker exec -it uploadmgr-tdl_server_1 sh
+    # then run: tdl login / tdl up / tdl dl
+
+  Persistent data (login session, config, downloads) is stored under this app's
+  data directory at /data inside the container.
+developer: Your Name
+website: https://github.com/rammpoirammpo-glitch/upload-manager
+repo: https://github.com/iyear/tdl
+support: https://github.com/iyear/tdl/issues
+port: ""
+gallery:
+  - https://raw.githubusercontent.com/iyear/tdl/master/docs/assets/img/logo.png
+path: ""
+dependencies: []
+defaultUsername: ""
+defaultPassword: ""
+permissions: []
+releaseNotes: >-
+  tdl v0.20.3. Added as a headless CLI app for the Upload Manager store.
+  AGPL-3.0 licensed (upstream project by iyear).
+submitter: Your Name
+submission: https://github.com/rammpoirammpo-glitch/upload-manager
