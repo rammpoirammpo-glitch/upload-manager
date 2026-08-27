@@ -1,8 +1,8 @@
 import os
 
 import requests
-from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
+from ._util import HEADERS, multipart_monitor, request_timeout
 from .base import BaseProvider
 
 DEFAULT_UPLOAD_URL = "https://ul.mixdrop.ag/api"
@@ -31,12 +31,12 @@ class MixdropProvider(BaseProvider):
         try:
             # folderlist returns success=true only when the key is valid.
             r = requests.get("https://api.mixdrop.ag/folderlist",
-                             params={"email": email, "key": key}, timeout=20,
-                             headers={"User-Agent": "upload-manager/1.0"})
+                             params={"email": email, "key": key},
+                             timeout=request_timeout(), headers=HEADERS)
             r.raise_for_status()
             data = r.json()
             if not data.get("success"):
-                return False, "Invalid credentials: %s" % data.get("msg", "")
+                return False, f"Invalid credentials: {data.get('msg', '')}"
             return True, "Connected to Mixdrop"
         except Exception as e:
             return False, str(e)
@@ -61,32 +61,23 @@ class MixdropProvider(BaseProvider):
             if fld:
                 fields.append(("folder", fld))
 
-            enc = MultipartEncoder(fields=fields)
-
-            def _monitor(mon):
-                try:
-                    progress_cb(min(1.0, mon.bytes_read / max(1, mon.len)))
-                except Exception:
-                    pass
-
-            monitor = MultipartEncoderMonitor(enc, _monitor)
+            monitor = multipart_monitor(fields, progress_cb)
             r = requests.post(
                 self._upload_url(), data=monitor,
-                headers={"Content-Type": monitor.content_type,
-                         "User-Agent": "upload-manager/1.0"},
-                timeout=(30, 7200),
+                headers={"Content-Type": monitor.content_type, **HEADERS},
+                timeout=request_timeout(),
             )
         finally:
             fh.close()
 
         if r.status_code not in (200, 201):
-            raise RuntimeError("HTTP %s: %s" % (r.status_code, r.text[:200]))
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
         try:
             data = r.json()
         except Exception:
-            raise RuntimeError("Invalid upload response: %s" % r.text[:200])
+            raise RuntimeError(f"Invalid upload response: {r.text[:200]}") from None
         if not data.get("success"):
-            raise RuntimeError("API error: %s" % data.get("msg", ""))
+            raise RuntimeError(f"API error: {data.get('msg', '')}")
         res = data.get("result")
         if not isinstance(res, dict) or not (res.get("url") or res.get("fileref")):
-            raise RuntimeError("Empty upload result from Mixdrop: %s" % (res or ""))
+            raise RuntimeError(f"Empty upload result from Mixdrop: {res or ''}")

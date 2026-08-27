@@ -1,4 +1,4 @@
-from .base import BaseProvider
+from .base import BaseProvider as BaseProvider  # re-exported for custom providers
 from .filehost import FileHostProvider
 from .local import LocalProvider
 from .mixdrop import MixdropProvider

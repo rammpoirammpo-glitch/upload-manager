@@ -41,6 +41,11 @@ class Watcher(threading.Thread):
         self._stable_lock = threading.Lock()
         self._warned = set()
         self.notifier = notifier
+        # Health counters surfaced by GET /api/status
+        self.last_scan_at = None
+        self.last_scan_duration = 0.0
+        self.last_scan_result = {}
+        self.scan_errors = 0
 
     def run(self):
         logger.info("Watcher started (scan every %ds)", config.SCAN_INTERVAL)
@@ -48,10 +53,12 @@ class Watcher(threading.Thread):
             try:
                 self.scan_once()
             except Exception:
+                self.scan_errors += 1
                 logger.exception("scan failed")
             time.sleep(config.SCAN_INTERVAL)
 
     def scan_once(self):
+        started = time.time()
         result = {"paths": 0, "files": 0, "queued": 0}
         with connect() as conn:
             roots = [dict(r) for r in conn.execute(
@@ -70,8 +77,7 @@ class Watcher(threading.Thread):
                         "Check the volume mount in docker-compose.yml.", root)
                     self._warned.add(root)
                     if self.notifier:
-                        self.notifier.notify(
-                            "Watch path not found in container: %s" % root)
+                        self.notifier.notify(f"Watch path not found in container: {root}")
                 continue
             result["paths"] += 1
             for dirpath, dirnames, filenames in os.walk(root, onerror=lambda e: None):
@@ -94,6 +100,9 @@ class Watcher(threading.Thread):
             stale = [p for p in self._stable if p not in seen]
             for p in stale:
                 self._stable.pop(p, None)
+        self.last_scan_at = time.time()
+        self.last_scan_duration = time.time() - started
+        self.last_scan_result = result
         return result
 
     def _check(self, path, root, remote_dir="", provider_ids=""):
@@ -128,6 +137,12 @@ class Watcher(threading.Thread):
         remote_dir = (remote_dir or "").strip().strip("/")
         provider_ids = (provider_ids or "").strip()
         with connect() as conn:
+            existing = conn.execute(
+                "SELECT status FROM queue_items WHERE path=?", (path,)).fetchone()
+            if existing and existing["status"] in ("pending", "uploading"):
+                # Already queued / in flight: never double-queue, and do not
+                # silently re-route an item the user is already uploading.
+                return False
             conn.execute(
                 "INSERT INTO queue_items(path, filename, rel_path, folder, remote_dir, provider_ids, size) "
                 "VALUES(?,?,?,?,?,?,?) "
@@ -145,7 +160,8 @@ class Watcher(threading.Thread):
                 "SELECT status FROM queue_items WHERE path=?", (path,)).fetchone()
         # A file that reappears on disk after a completed/skipped upload is a
         # fresh download (e.g. after DELETE_AFTER_UPLOAD removed the old file):
-        # re-queue it instead of silently ignoring it.
+        # re-queue it instead of silently ignoring it. Failed items stay failed
+        # (the user retries them from the dashboard).
         if not row or row["status"] != "pending":
             return False
         logger.info("Queued: %s", path)

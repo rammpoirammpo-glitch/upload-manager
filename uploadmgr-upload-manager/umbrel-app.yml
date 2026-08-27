@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.3.0"
+version: "1.4.0"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,16 +35,19 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Stability & routing release. Fixes: files whose names contain "temp"/"partial"
-  (e.g. Temperature.mkv) are no longer wrongly skipped as incomplete; files that
-  reappear after a completed upload (re-downloads) are automatically re-queued;
-  routing to a deleted provider is filtered out instead of wedging items forever;
-  Skip now cancels pending tasks too; progress updates are throttled so large
-  uploads no longer hammer SQLite; a watchdog recovers items stuck in "uploading"
-  after a crash; uploads are never marked completed (and local files never
-  deleted) unless every provider confirmed. Adds /api/health for daemon
-  healthchecks and shows provider names in the Watch Paths panel. Includes a
-  test suite covering routing (movies -> provider A, series -> provider B) and
-  the full scan/queue/upload pipeline.
+  Production-hardening release (1.4.0). Telegram is now bridged directly to the
+  logging system (every WARNING/ERROR is forwarded, rate-limited) and runs on a
+  single worker thread with per-message coalescing so a failing provider cannot
+  flood your phone. HTTP timeouts are config-driven with a sane read cap so a
+  stalled upload can never freeze a worker. Retries use capped exponential
+  backoff with jitter. Completed items older than 30 days are auto-pruned so the
+  database cannot grow forever. Scans now run in the background (the dashboard
+  never blocks even on huge folders), /api/logs reads only the file tail, and a
+  new /api/status reports thread health, last scan stats and queue/provider
+  counts. The scheduler no longer busy-loops items whose routing points at a
+  disabled/deleted provider. Full refactor: shared multipart/timeout plumbing,
+  ruff-clean code, graceful daemon shutdown, and a CI workflow (ruff + 31 tests)
+  covering routing isolation at scale, backoff bounds, pruning, notifier rate
+  limits and the complete scan/queue/upload pipeline.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

@@ -388,8 +388,9 @@ async function refreshAll() {
 $("#btnScan").onclick = async () => {
   try {
     const r = await api("/api/scan", { method: "POST" });
-    toast(`Scan done: ${r.files} file(s) found, ${r.queued} newly queued`);
-    refreshQueue(); refreshStats();
+    if (r.already_running) toast("A scan is already running...");
+    else toast("Scan started in background...");
+    setTimeout(() => { refreshQueue(); refreshStats(); }, 1500);
   } catch (e) {
     toast("Scan failed: " + e.message, true);
   }

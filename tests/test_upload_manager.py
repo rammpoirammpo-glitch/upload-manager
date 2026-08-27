@@ -7,10 +7,12 @@ The DATA_DIR env var is pointed at a temp folder BEFORE importing the app, so
 config.py picks up an isolated database for every test.
 """
 
+import json
 import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 _TMP = tempfile.mkdtemp(prefix="uploadmgr-test-")
@@ -20,15 +22,18 @@ os.environ["DELETE_AFTER_UPLOAD"] = "true"
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app import config  # noqa: E402
+from app.api import _clean_provider_ids  # noqa: E402
 from app.database import connect, init_db  # noqa: E402
+from app.notifier import Notifier  # noqa: E402
 from app.providers.filehost import FileHostProvider  # noqa: E402
 from app.queue import (  # noqa: E402
     ProgressThrottler,
     QueueScheduler,
+    _enabled_providers,
     _selected_providers,
+    compute_retry_delay,
 )
 from app.watcher import Watcher, is_incomplete_name  # noqa: E402
-from app.api import _clean_provider_ids  # noqa: E402
 
 
 def _provider_row(pid, name="p"):
@@ -124,6 +129,46 @@ class ProgressThrottlerTests(unittest.TestCase):
         self.assertTrue(t.should_write(1.01))
 
 
+class BackoffTests(unittest.TestCase):
+    """Exponential backoff must grow, stay inside the jitter band, and never
+    exceed the hard cap (so a down provider cannot stall the queue forever)."""
+
+    def test_delay_within_bounds(self):
+        for attempt in (1, 2, 3, 4, 5):
+            d = compute_retry_delay(attempt)
+            base = min(config.RETRY_BACKOFF_CAP,
+                       config.RETRY_BACKOFF * (2 ** (attempt - 1)))
+            self.assertGreaterEqual(d, base, f"attempt {attempt}")
+            self.assertLess(d, base + config.RETRY_JITTER + 1e-6,
+                            f"attempt {attempt}")
+
+    def test_delay_capped(self):
+        # attempt=10 -> 30 * 2**9 = 15360s, far above the 300s cap
+        d = compute_retry_delay(10)
+        self.assertLessEqual(d, config.RETRY_BACKOFF_CAP + config.RETRY_JITTER)
+
+    def test_delay_monotonic(self):
+        samples = [compute_retry_delay(a) for a in (1, 2, 3, 4, 5)]
+        self.assertEqual(samples, sorted(samples))
+
+
+class NotifierTests(unittest.TestCase):
+    def test_rate_limit_blocks_immediate_duplicate(self):
+        n = Notifier()
+        self.assertTrue(n._allow("key1"))
+        self.assertFalse(n._allow("key1"))
+        self.assertTrue(n._allow("key2"))
+
+    def test_cooldown_key_normalizes(self):
+        n = Notifier()
+        self.assertEqual(n._cooldown_key("  hello world  "), "hello world")
+
+    def test_notify_noop_without_creds(self):
+        n = Notifier()
+        n.notify("hello")
+        self.assertEqual(n._queue.qsize(), 0)
+
+
 class QueuePipelineTests(unittest.TestCase):
     """Full pipeline: scan -> queue -> upload -> complete, with a LocalProvider
     (no network needed). Verifies routing and re-queue behavior."""
@@ -141,7 +186,7 @@ class QueuePipelineTests(unittest.TestCase):
             conn.execute(
                 "INSERT INTO providers(name,type,config,enabled) VALUES(?,?,?,?)",
                 ("local-test", "local",
-                 '{"target_dir": "%s"}' % cls.target, 1))
+                 '{"target_dir": "%s"}' % cls.target, 1))  # noqa: UP031
             conn.execute(
                 "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) "
                 "VALUES(?,?,?,?)", (cls.watch, 1, "", ""))
@@ -187,7 +232,7 @@ class QueuePipelineTests(unittest.TestCase):
         # cloud folder named after the watch path's source folder.
         cloud_folder = os.path.basename(self.watch.rstrip(os.sep))
         dest = os.path.join(self.target, cloud_folder, "Movie.2024.1080p.mkv")
-        self.assertTrue(os.path.exists(dest), "expected %s" % dest)
+        self.assertTrue(os.path.exists(dest), f"expected {dest}")
         self.assertEqual(os.path.getsize(dest), 1024 * 1024)
         # DELETE_AFTER_UPLOAD=true removed the source
         self.assertFalse(os.path.exists(src))
@@ -230,6 +275,125 @@ class QueuePipelineTests(unittest.TestCase):
             row = conn.execute(
                 "SELECT status FROM queue_items WHERE id=?", (fake,)).fetchone()
         self.assertEqual(row["status"], "pending")
+
+    def test_routing_isolation_at_scale(self):
+        """Radarr movies -> provider A, Sonarr series -> provider B, with a
+        queue of 80 items: every item must route to exactly one provider and
+        land only in its target, with zero cross-routing."""
+        movies_dir = tempfile.mkdtemp(prefix="movies-")
+        series_dir = tempfile.mkdtemp(prefix="series-")
+        ta = tempfile.mkdtemp(prefix="hostA-")
+        tb = tempfile.mkdtemp(prefix="hostB-")
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO providers(name,type,config,enabled) VALUES(?,?,?,?)",
+                ("scaleA", "local", json.dumps({"target_dir": ta}), 1))
+            a_id = conn.execute(
+                "SELECT id FROM providers WHERE name='scaleA'").fetchone()["id"]
+            conn.execute(
+                "INSERT INTO providers(name,type,config,enabled) VALUES(?,?,?,?)",
+                ("scaleB", "local", json.dumps({"target_dir": tb}), 1))
+            b_id = conn.execute(
+                "SELECT id FROM providers WHERE name='scaleB'").fetchone()["id"]
+            conn.execute(
+                "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) "
+                "VALUES(?,?,?,?)", (movies_dir, 1, "", str(a_id)))
+            conn.execute(
+                "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) "
+                "VALUES(?,?,?,?)", (series_dir, 1, "", str(b_id)))
+
+        def _write(d, name):
+            p = os.path.join(d, name)
+            with open(p, "wb") as f:
+                f.write(b"x" * 1024)
+            os.utime(p, (1, 1))
+            return p
+
+        for i in range(40):
+            _write(movies_dir, f"Movie.{i:03d}.mkv")
+            _write(series_dir, f"Show.S{i:02d}E01.mkv")
+
+        res = self.watcher.scan_once()
+        self.assertEqual(res["queued"], 80, res)
+        with connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM queue_items WHERE path LIKE ? OR path LIKE ? "
+                "ORDER BY id", (movies_dir + "%", series_dir + "%")).fetchall()
+        self.assertEqual(len(rows), 80)
+
+        # Routing exactness for every single item, regardless of queue size
+        enabled = _enabled_providers()
+        for r in rows:
+            want = a_id if r["path"].startswith(movies_dir) else b_id
+            got = [p["id"] for p in _selected_providers(enabled, r["provider_ids"])]
+            self.assertEqual(got, [want], r["path"])
+
+        # Process all 80 items: everything must complete into the right target
+        for r in rows:
+            self.scheduler._process_item(r["id"])
+        with connect() as conn:
+            bad = conn.execute(
+                "SELECT COUNT(*) AS c FROM queue_items "
+                "WHERE (path LIKE ? OR path LIKE ?) AND status!='completed'",
+                (movies_dir + "%", series_dir + "%")).fetchone()["c"]
+        self.assertEqual(bad, 0)
+        cf_m = os.path.basename(movies_dir.rstrip(os.sep))
+        cf_s = os.path.basename(series_dir.rstrip(os.sep))
+        for i in range(40):
+            self.assertTrue(os.path.exists(
+                os.path.join(ta, cf_m, f"Movie.{i:03d}.mkv")))
+            self.assertFalse(os.path.exists(
+                os.path.join(tb, cf_m, f"Movie.{i:03d}.mkv")))
+            self.assertTrue(os.path.exists(
+                os.path.join(tb, cf_s, f"Show.S{i:02d}E01.mkv")))
+            self.assertFalse(os.path.exists(
+                os.path.join(ta, cf_s, f"Show.S{i:02d}E01.mkv")))
+
+    def test_step_skips_items_without_enabled_provider(self):
+        """The scheduler must NOT start (and instantly re-pend) an item whose
+        routing points at a provider that does not exist / is not enabled: it
+        stays pending and consumes no concurrency slot (no busy loop)."""
+        with connect() as conn:
+            conn.execute("DELETE FROM queue_items")
+            conn.execute(
+                "INSERT INTO queue_items(path, filename, provider_ids, size, status) "
+                "VALUES(?,?,?,?,?)", ("/x/unroutable.mkv", "unroutable.mkv",
+                                       "999999", 1024, "pending"))
+            unroutable_id = conn.execute(
+                "SELECT id FROM queue_items WHERE path='/x/unroutable.mkv'").fetchone()["id"]
+        before = self.scheduler.started_total
+        self.scheduler._step()
+        with connect() as conn:
+            st = conn.execute(
+                "SELECT status FROM queue_items WHERE id=?", (unroutable_id,)).fetchone()["status"]
+            uploading = conn.execute(
+                "SELECT COUNT(*) AS c FROM queue_items WHERE status='uploading'").fetchone()["c"]
+        self.assertEqual(self.scheduler.started_total, before)
+        self.assertEqual(st, "pending")
+        self.assertEqual(uploading, 0)
+        with connect() as conn:
+            conn.execute("DELETE FROM queue_items WHERE id=?", (unroutable_id,))
+
+    def test_prune_old_completed(self):
+        with connect() as conn:
+            conn.execute("DELETE FROM queue_items")
+            conn.execute(
+                "INSERT INTO queue_items(path, filename, status, completed_at) "
+                "VALUES(?,?,?,datetime('now','-40 days'))",
+                ("/x/old.mkv", "old.mkv", "completed"))
+            conn.execute(
+                "INSERT INTO queue_items(path, filename, status, completed_at) "
+                "VALUES(?,?,?,datetime('now'))",
+                ("/x/new.mkv", "new.mkv", "completed"))
+            conn.execute(
+                "INSERT INTO queue_items(path, filename, status) VALUES(?,?,?)",
+                ("/x/pend.mkv", "pend.mkv", "pending"))
+        self.scheduler._prune_old_completed()
+        with connect() as conn:
+            paths = [r["path"] for r in conn.execute("SELECT path FROM queue_items")]
+        self.assertNotIn("/x/old.mkv", paths)
+        self.assertIn("/x/new.mkv", paths)
+        self.assertIn("/x/pend.mkv", paths)
 
 
 class SkipRetryTests(unittest.TestCase):
@@ -290,6 +454,7 @@ class SkipRetryTests(unittest.TestCase):
 
 try:
     from fastapi.testclient import TestClient
+
     from app.main import app
     _HAVE_HTTPX = True
 except ImportError:  # httpx not installed -> skip these tests
@@ -344,13 +509,24 @@ class ApiRoutingTests(unittest.TestCase):
 
             r = c.post("/api/scan")
             self.assertEqual(r.status_code, 200, r.text)
-            self.assertEqual(r.json()["queued"], 2, r.json())
+            self.assertEqual(r.json()["started"], True, r.json())
+            # Scan runs in the background now; wait for both files to be queued
+            deadline = time.time() + 15
+            n = 0
+            while time.time() < deadline:
+                with connect() as conn:
+                    n = conn.execute(
+                        "SELECT COUNT(*) AS c FROM queue_items").fetchone()["c"]
+                if n >= 2:
+                    break
+                time.sleep(0.2)
+            self.assertGreaterEqual(n, 2)
 
             sched = QueueScheduler(notifier=None, concurrency=2)
             with connect() as conn:
                 items = conn.execute(
                     "SELECT id FROM queue_items ORDER BY id").fetchall()
-            self.assertEqual(len(items), 2)
+            self.assertGreaterEqual(len(items), 2)
             for it in items:
                 sched._process_item(it["id"])
 
@@ -382,7 +558,7 @@ class ApiRoutingTests(unittest.TestCase):
             # instead of silently wedging items in 'pending' forever.
             r = c.post("/api/watchpaths", json={
                 "path": self.movies, "enabled": True,
-                "provider_ids": "%d,99999" % pid})
+                "provider_ids": f"{pid},99999"})
             self.assertEqual(r.status_code, 201, r.text)
             saved = next(p for p in c.get("/api/watchpaths").json()["paths"]
                          if p["path"] == os.path.abspath(self.movies))
@@ -393,6 +569,34 @@ class ApiRoutingTests(unittest.TestCase):
             r = c.get("/api/health")
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.json()["ok"], True)
+
+    def test_status_endpoint(self):
+        with TestClient(app) as c:
+            r = c.get("/api/status")
+            self.assertEqual(r.status_code, 200, r.text)
+            d = r.json()
+            self.assertTrue(d["ok"])
+            self.assertIn("watcher", d)
+            self.assertIn("scheduler", d)
+            self.assertIn("queue", d)
+            self.assertIn("db", d)
+            self.assertIn("alive", d["watcher"])
+            self.assertIn("alive", d["scheduler"])
+
+    def test_logs_endpoint_returns_tail(self):
+        # The log tail reader must return only the last N lines even when the
+        # log file is large (it reads the tail, not the whole file).
+        with open(config.LOG_PATH, "w", encoding="utf-8") as f:
+            for i in range(20000):
+                f.write(f"line {i}\n")
+        with TestClient(app) as c:
+            r = c.get("/api/logs?lines=5")
+            self.assertEqual(r.status_code, 200)
+            lines = r.json()["logs"].strip().splitlines()
+            # Exactly `lines` entries, and the tail of the file we wrote is
+            # present (the app may append its own startup log lines after).
+            self.assertEqual(len(lines), 5)
+            self.assertTrue(any(line.startswith("line 199") for line in lines))
 
 
 if __name__ == "__main__":

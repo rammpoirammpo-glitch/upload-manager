@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -52,6 +53,19 @@ class ProgressThrottler:
         return True
 
 
+def compute_retry_delay(attempt):
+    """Exponential backoff (seconds) for retry ``attempt``, with jitter and a
+    hard cap so a down provider cannot stall the queue for hours.
+
+    Pure function (testable): delay = min(cap, base * 2**(attempt-1)) + [0,jitter)
+    """
+    base = min(config.RETRY_BACKOFF_CAP,
+               config.RETRY_BACKOFF * (2 ** max(0, attempt - 1)))
+    if config.RETRY_JITTER > 0:
+        base += random.uniform(0, config.RETRY_JITTER)
+    return base
+
+
 def _selected_providers(providers, provider_ids):
     """Filter the enabled providers down to the ones chosen for a watch path.
 
@@ -77,6 +91,9 @@ class QueueScheduler(threading.Thread):
         # Cap of parallel upload workers per item, so an item routed to many
         # providers cannot spawn an unbounded number of threads.
         self.max_providers_per_item = 8
+        self.last_step_at = None
+        self.started_total = 0
+        self._last_prune = 0.0
 
     def run(self):
         logger.info("Queue scheduler started (concurrency=%d)", self.concurrency)
@@ -85,9 +102,29 @@ class QueueScheduler(threading.Thread):
                 if not self.paused:
                     self._step()
                     self._recover_stale_uploading()
+                    self._prune_old_completed()
             except Exception:
                 logger.exception("scheduler step failed")
             time.sleep(3)
+
+    def _prune_old_completed(self):
+        """Housekeeping: delete completed items older than N days so the
+        database cannot grow without bound on a 24/7 install."""
+        if config.PRUNE_COMPLETED_DAYS <= 0:
+            return
+        now = time.time()
+        if now - self._last_prune < 3600:
+            return
+        self._last_prune = now
+        days = config.PRUNE_COMPLETED_DAYS
+        with connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM queue_items WHERE status='completed' "
+                "AND completed_at IS NOT NULL "
+                "AND completed_at < datetime('now', ?)", (f"-{days} days",))
+        if cur.rowcount:
+            logger.info("Pruned %d completed item(s) older than %d days",
+                        cur.rowcount, days)
 
     def _recover_stale_uploading(self):
         """Watchdog: reset items stuck in 'uploading' whose worker thread is
@@ -110,9 +147,11 @@ class QueueScheduler(threading.Thread):
                         "WHERE id=?", (r["id"],))
 
     def _step(self):
+        self.last_step_at = time.time()
         # If no provider is enabled yet, do not start items: this avoids
         # repeatedly spawning short-lived worker threads for nothing.
-        if not _enabled_providers():
+        enabled = _enabled_providers()
+        if not enabled:
             return
         with connect() as conn:
             active = [r["id"] for r in conn.execute(
@@ -135,6 +174,11 @@ class QueueScheduler(threading.Thread):
             if not row["size"] or row["size"] <= 0:
                 self._mark_failed(row["id"], "File size is zero or unknown")
                 continue
+            # Routing guard: if none of the providers selected for this item's
+            # watch path is enabled, leave the item pending instead of starting
+            # (and instantly re-pending) a worker thread every 3 seconds.
+            if not _selected_providers(enabled, row["provider_ids"]):
+                continue
             self._start_item(row)
             started += 1
 
@@ -156,6 +200,7 @@ class QueueScheduler(threading.Thread):
             conn.execute(
                 "UPDATE queue_items SET status='uploading', updated_at=datetime('now'), "
                 "started_at=datetime('now') WHERE id=?", (item_id,))
+        self.started_total += 1
         t = threading.Thread(target=self._process_item, args=(item_id,),
                              daemon=True, name=f"item-{item_id}")
         t.start()
@@ -226,8 +271,7 @@ class QueueScheduler(threading.Thread):
             not_done = [t for t in tasks if t["status"] != "completed"]
             if not_done:
                 errs = "; ".join(
-                    "%s: %s" % (t["provider_name"],
-                                t["error"] or ("crashed" if t["status"] == "pending" else "failed"))
+                    f"{t['provider_name']}: {t['error'] or ('crashed' if t['status'] == 'pending' else 'failed')}"
                     for t in not_done)
                 self._mark_failed(item_id, errs)
             else:
@@ -243,16 +287,15 @@ class QueueScheduler(threading.Thread):
                     deleted = False
                 if self.notifier:
                     self.notifier.notify(
-                        "Uploaded successfully: %s%s" % (
-                            item["filename"],
-                            " | local file deleted" if deleted else ""))
+                        f"Uploaded successfully: {item['filename']}"
+                        f"{' | local file deleted' if deleted else ''}")
         except Exception as e:
             # Never leave the item stuck in 'uploading' (which would consume a
             # concurrency slot forever). Mark it failed so the error is visible
             # and the slot is freed; the user can retry from the dashboard.
             logger.exception("Unexpected error processing item %s", item_id)
             try:
-                self._mark_failed(item_id, "Internal error: %s" % str(e)[:300])
+                self._mark_failed(item_id, f"Internal error: {str(e)[:300]}")
             except Exception:
                 logger.exception("Could not mark item %s failed", item_id)
         finally:
@@ -298,7 +341,7 @@ class QueueScheduler(threading.Thread):
                 conn.execute(
                     "UPDATE upload_tasks SET status='failed', error=?, "
                     "updated_at=datetime('now') WHERE item_id=? AND provider_id=?",
-                    ("Provider init failed: %s" % str(e)[:300], item_id, provider_id))
+                    (f"Provider init failed: {str(e)[:300]}", item_id, provider_id))
             return
         max_attempts = max(1, config.RETRY_MAX)
 
@@ -342,8 +385,8 @@ class QueueScheduler(threading.Thread):
                         "updated_at=datetime('now') WHERE item_id=? AND provider_id=?",
                         (attempt, err, item_id, provider_id))
                 if attempt < max_attempts:
-                    wait = config.RETRY_BACKOFF * (2 ** (attempt - 1))
-                    logger.info("Retrying %s in %ds (attempt %d/%d)",
+                    wait = compute_retry_delay(attempt)
+                    logger.info("Retrying %s in %.0fs (attempt %d/%d)",
                                 item["filename"], wait, attempt + 1, max_attempts)
                     time.sleep(wait)
         logger.error("Gave up on %s (provider %s)", item["filename"], provider_name)
@@ -388,5 +431,4 @@ class QueueScheduler(threading.Thread):
                 "WHERE id=?", (error[:2000], item_id))
         if self.notifier:
             name = row["filename"] if row else f"item #{item_id}"
-            self.notifier.notify(
-                "Upload FAILED: %s\n%s" % (name, error[:2000]))
+            self.notifier.notify(f"Upload FAILED: {name}\n{error[:2000]}")

@@ -1,11 +1,23 @@
+"""Central configuration for the upload-manager daemon.
+
+Every value can be overridden with an environment variable so the same image
+works on umbrelOS and on a standalone VPS. Values are read once at startup
+(they are constants for the process lifetime).
+"""
+
 import os
 
 
 def _int(name, default, minimum=1):
+    """Read an int env var, clamped to >= minimum; fall back to default."""
     try:
         return max(int(os.getenv(name, str(default))), minimum)
     except (TypeError, ValueError):
         return default
+
+
+def _bool(name, default):
+    return os.getenv(name, str(default)).lower() in ("1", "true", "yes", "on")
 
 
 APP_PORT = _int("APP_PORT", 8080, minimum=0)
@@ -13,29 +25,50 @@ DATA_DIR = os.getenv("DATA_DIR", "/app/data")
 DB_PATH = os.path.join(DATA_DIR, "uploader.db")
 LOG_PATH = os.path.join(DATA_DIR, "uploader.log")
 
-SCAN_INTERVAL = _int("SCAN_INTERVAL", 30)
-STABLE_SECONDS = _int("STABLE_SECONDS", 30)
-UPLOAD_CONCURRENCY = _int("UPLOAD_CONCURRENCY", 2)
-RETRY_MAX = _int("RETRY_MAX", 3)
-RETRY_BACKOFF = _int("RETRY_BACKOFF", 30, minimum=0)
+# --- Watcher -----------------------------------------------------------------
+SCAN_INTERVAL = _int("SCAN_INTERVAL", 30)          # seconds between scans
+STABLE_SECONDS = _int("STABLE_SECONDS", 30)        # file age before it is queued
+
+# --- Queue / concurrency -----------------------------------------------------
+UPLOAD_CONCURRENCY = _int("UPLOAD_CONCURRENCY", 2)  # items uploaded in parallel
+RETRY_MAX = _int("RETRY_MAX", 3)                    # attempts per provider
+RETRY_BACKOFF = _int("RETRY_BACKOFF", 30)           # base backoff (seconds)
+RETRY_BACKOFF_CAP = _int("RETRY_BACKOFF_CAP", 300)  # never wait longer than this
+RETRY_JITTER = _int("RETRY_JITTER", 5, minimum=0)   # +0..N random seconds
+
+# Completed items older than this are pruned automatically (0 = keep forever).
+PRUNE_COMPLETED_DAYS = _int("PRUNE_COMPLETED_DAYS", 30, minimum=0)
+
+# --- HTTP timeouts (used by every provider) ----------------------------------
+# (connect, read) seconds. The read timeout is per chunk read, so a hung or
+# stalled upload cannot freeze a worker forever, while still allowing slow
+# (but alive) connections to make progress.
+CONNECT_TIMEOUT = _int("CONNECT_TIMEOUT", 30, minimum=1)
+READ_TIMEOUT = _int("READ_TIMEOUT", 300, minimum=10)
 
 # Delete the local file from disk after it has been uploaded successfully
 # to ALL enabled providers, to save disk space.
-DELETE_AFTER_UPLOAD = os.getenv("DELETE_AFTER_UPLOAD", "true").lower() == "true"
+DELETE_AFTER_UPLOAD = _bool("DELETE_AFTER_UPLOAD", True)
 
 # When a watch path has no "Remote folder" set, automatically use the watch
 # path's own folder name (e.g. /downloads/movies -> "movies") as the cloud
 # folder, so each source gets its own single cloud folder with no manual entry.
-AUTO_REMOTE_FOLDER = os.getenv("AUTO_REMOTE_FOLDER", "true").lower() == "true"
+AUTO_REMOTE_FOLDER = _bool("AUTO_REMOTE_FOLDER", True)
 
+# --- Dashboard auth ----------------------------------------------------------
 AUTH_USER = os.getenv("AUTH_USER", "")
 AUTH_PASS = os.getenv("AUTH_PASS", "")
 
+# --- Telegram (legacy env fallback; the web UI settings take priority) -------
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+# --- Incomplete-download detection -------------------------------------------
+# Suffixes are trusted for BOTH files and directories. Directory-level markers
+# (qBittorrent-style .!qb folders etc.) are matched precisely inside
+# watcher.is_incomplete_name so ordinary names like "Temperature" are never
+# skipped.
 INCOMPLETE_SUFFIXES = (
     ".part", ".partial", ".incomplete", ".!qb", ".!qbr", ".aria2",
     ".crdownload", ".opdownload", ".download", ".tmp", ".torrent",
 )
-INCOMPLETE_DIR_MARKERS = ("!qb", ".incomplete", "partial", "temp")

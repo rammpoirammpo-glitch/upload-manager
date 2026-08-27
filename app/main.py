@@ -49,6 +49,10 @@ async def lifespan(app: FastAPI):
     app.state.watcher = watcher
     app.state.scheduler = scheduler
     app.state.notifier = notifier
+    # Bridge the logging system to Telegram: every WARNING/ERROR record is
+    # forwarded (rate-limited) so the operator is alerted while away.
+    root_logger = logging.getLogger()
+    root_logger.addHandler(notifier.log_handler)
     watcher.start()
     scheduler.start()
     logger.info("Upload Manager started: %d pending item(s), %d enabled provider(s)",
@@ -57,10 +61,14 @@ async def lifespan(app: FastAPI):
     watcher.running = False
     scheduler.running = False
     watcher.join(timeout=5)
-    scheduler.join(timeout=5)
+    # Give the scheduler a moment to persist the final state of in-flight items
+    # before the process exits.
+    scheduler.join(timeout=15)
+    root_logger.removeHandler(notifier.log_handler)
+    notifier.shutdown()
 
 
-app = FastAPI(title="Upload Manager", version="1.3.0", lifespan=lifespan)
+app = FastAPI(title="Upload Manager", version="1.4.0", lifespan=lifespan)
 app.include_router(router)
 
 
@@ -76,7 +84,7 @@ if config.AUTH_USER:
             user, _, password = token.partition(":")
         except Exception:
             raise HTTPException(401, "Unauthorized",
-                                headers={"WWW-Authenticate": "Basic"})
+                                headers={"WWW-Authenticate": "Basic"}) from None
         # compare_digest only accepts ASCII str, so hash both sides to bytes
         # first: non-ASCII passwords must not crash the request (500) or
         # bypass the check.

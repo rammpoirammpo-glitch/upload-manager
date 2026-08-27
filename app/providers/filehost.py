@@ -1,8 +1,8 @@
 import os
 
 import requests
-from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
+from ._util import HEADERS, multipart_monitor, request_timeout
 from .base import BaseProvider
 
 
@@ -53,13 +53,13 @@ class FileHostProvider(BaseProvider):
     def _call(self, path, params):
         if not self._api():
             raise RuntimeError("API host is not configured")
-        r = requests.get(self._api() + path, params=params, timeout=20,
-                         headers={"User-Agent": "upload-manager/1.0"})
+        r = requests.get(self._api() + path, params=params,
+                         timeout=request_timeout(), headers=HEADERS)
         r.raise_for_status()
         try:
             data = r.json()
         except Exception:
-            raise RuntimeError(f"Invalid API response: {r.text[:200]}")
+            raise RuntimeError(f"Invalid API response: {r.text[:200]}") from None
         if not self._status_ok(data):
             raise RuntimeError(f"API error {data.get('status')}: {data.get('msg', '')}")
         return data
@@ -158,20 +158,11 @@ class FileHostProvider(BaseProvider):
             if tags:
                 fields.append(("tags", tags))
 
-            enc = MultipartEncoder(fields=fields)
-
-            def _monitor_cb(monitor):
-                try:
-                    progress_cb(min(1.0, monitor.bytes_read / max(1, monitor.len)))
-                except Exception:
-                    pass
-
-            monitor = MultipartEncoderMonitor(enc, _monitor_cb)
+            monitor = multipart_monitor(fields, progress_cb)
             r = requests.post(
                 upload_url, data=monitor,
-                headers={"Content-Type": monitor.content_type,
-                         "User-Agent": "upload-manager/1.0"},
-                timeout=(30, 7200),
+                headers={"Content-Type": monitor.content_type, **HEADERS},
+                timeout=request_timeout(),
             )
         finally:
             file_handle.close()
@@ -181,7 +172,7 @@ class FileHostProvider(BaseProvider):
         try:
             data = r.json()
         except Exception:
-            raise RuntimeError(f"Invalid upload response: {r.text[:200]}")
+            raise RuntimeError(f"Invalid upload response: {r.text[:200]}") from None
         if not self._status_ok(data):
             raise RuntimeError(f"API error: {data.get('msg', '')}")
         files = data.get("files") or []

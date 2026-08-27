@@ -2,6 +2,7 @@ import os
 
 import requests
 
+from ._util import HEADERS, request_timeout
 from .base import BaseProvider
 
 
@@ -36,8 +37,8 @@ class WebDAVProvider(BaseProvider):
         try:
             r = requests.request(
                 "PROPFIND", self._base() + "/",
-                auth=self._auth(), headers={"Depth": "0"},
-                timeout=15, verify=self._verify(),
+                auth=self._auth(), headers={"Depth": "0", **HEADERS},
+                timeout=request_timeout(), verify=self._verify(),
             )
             if r.status_code in (200, 207):
                 return True, "Connected"
@@ -56,7 +57,7 @@ class WebDAVProvider(BaseProvider):
                 continue
             cur += "/" + part
             try:
-                session.request("MKCOL", cur, timeout=20)
+                session.request("MKCOL", cur, timeout=request_timeout())
             except Exception:
                 pass
 
@@ -90,8 +91,8 @@ class WebDAVProvider(BaseProvider):
                 r = s.put(
                     self._remote(remote_path),
                     data=ProgressFile(),
-                    headers={"Content-Length": str(total)},
-                    timeout=(30, 7200),
+                    headers={"Content-Length": str(total), **HEADERS},
+                    timeout=request_timeout(),
                 )
             finally:
                 f.close()

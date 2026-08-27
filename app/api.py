@@ -1,5 +1,8 @@
 import json
+import logging
 import os
+import threading
+import time
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -7,6 +10,8 @@ from pydantic import BaseModel, Field
 from . import config
 from .database import connect, get_setting, set_setting
 from .providers import get_all_provider_classes, get_provider_class
+
+logger = logging.getLogger("uploader.api")
 
 router = APIRouter()
 
@@ -281,18 +286,39 @@ def stats():
 
 @router.get("/api/logs")
 def get_logs(lines: int = 300):
+    # Read only the tail of the file (last ~64KB) instead of the whole file:
+    # on a 24/7 daemon the log can grow to gigabytes and reading it fully on
+    # every dashboard refresh would block the API thread.
     try:
-        with open(config.LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
-            data = f.readlines()
-        return {"logs": "".join(data[-lines:])}
+        with open(config.LOG_PATH, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 64 * 1024))
+            tail = f.read().decode("utf-8", errors="replace")
+        return {"logs": "".join(tail.splitlines(keepends=True)[-max(1, min(lines, 5000)):])}
     except FileNotFoundError:
         return {"logs": ""}
 
 
 @router.post("/api/scan")
 def manual_scan(request: Request):
-    result = request.app.state.watcher.scan_once()
-    return {"ok": True, **result}
+    # Run the scan on a background thread so a huge downloads folder can never
+    # block the dashboard / API (zero-freeze guarantee).
+    w = request.app.state.watcher
+    if getattr(w, "_manual_scanning", False):
+        return {"ok": True, "started": False, "already_running": True}
+    w._manual_scanning = True
+
+    def _run():
+        try:
+            w.scan_once()
+        except Exception:
+            logger.exception("manual scan failed")
+        finally:
+            w._manual_scanning = False
+
+    threading.Thread(target=_run, daemon=True, name="manual-scan").start()
+    return {"ok": True, "started": True}
 
 
 @router.get("/api/health")
@@ -302,8 +328,50 @@ def health():
         with connect() as conn:
             conn.execute("SELECT 1")
     except Exception:
-        raise HTTPException(503, "Database unavailable")
+        raise HTTPException(503, "Database unavailable") from None
     return {"ok": True}
+
+
+@router.get("/api/status")
+def system_status(request: Request):
+    """Deep health report: threads alive, last scan stats, queue and provider
+    counts, DB size. Lets the watchdog / operator see the daemon is healthy."""
+    w = request.app.state.watcher
+    s = request.app.state.scheduler
+    try:
+        with connect() as conn:
+            counts = {r["status"]: r["c"] for r in conn.execute(
+                "SELECT status, COUNT(*) AS c FROM queue_items GROUP BY status")}
+            providers = conn.execute(
+                "SELECT COUNT(*) AS c FROM providers").fetchone()["c"]
+            enabled_providers = conn.execute(
+                "SELECT COUNT(*) AS c FROM providers WHERE enabled=1").fetchone()["c"]
+        db_size = os.path.getsize(config.DB_PATH) if os.path.exists(config.DB_PATH) else 0
+    except Exception as e:
+        raise HTTPException(503, f"Database unavailable: {e}") from None
+    return {
+        "ok": True,
+        "db": {"size_bytes": db_size},
+        "queue": {"counts": counts},
+        "providers": {"total": providers, "enabled": enabled_providers},
+        "watcher": {
+            "alive": w.is_alive(),
+            "last_scan_at": w.last_scan_at,
+            "last_scan_duration_s": round(w.last_scan_duration, 2),
+            "last_scan": w.last_scan_result,
+            "scan_errors": w.scan_errors,
+            "manual_scanning": bool(getattr(w, "_manual_scanning", False)),
+        },
+        "scheduler": {
+            "alive": s.is_alive(),
+            "paused": s.paused,
+            "concurrency": s.concurrency,
+            "active_items": len(s._active),
+            "started_total": s.started_total,
+            "last_step_at": s.last_step_at,
+        },
+        "time": time.time(),
+    }
 
 
 @router.post("/api/pause")

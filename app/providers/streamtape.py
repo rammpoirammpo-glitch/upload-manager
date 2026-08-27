@@ -2,8 +2,8 @@ import hashlib
 import os
 
 import requests
-from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
+from ._util import HEADERS, multipart_monitor, request_timeout
 from .base import BaseProvider
 
 API_BASE = "https://api.streamtape.com"
@@ -36,12 +36,12 @@ class StreamTapeProvider(BaseProvider):
         fld = (self.config.get("folder") or "").strip()
         if fld:
             params["folder"] = fld
-        r = requests.get(API_BASE + "/file/ul", params=params, timeout=30,
-                         headers={"User-Agent": "upload-manager/1.0"})
+        r = requests.get(API_BASE + "/file/ul", params=params,
+                         timeout=request_timeout(), headers=HEADERS)
         r.raise_for_status()
         data = r.json()
         if int(data.get("status", 0)) != 200:
-            raise RuntimeError("API error: %s" % data.get("msg", ""))
+            raise RuntimeError(f"API error: {data.get('msg', '')}")
         url = (data.get("result") or {}).get("url")
         if not url:
             raise RuntimeError("No upload URL in StreamTape response")
@@ -54,15 +54,15 @@ class StreamTapeProvider(BaseProvider):
             return False, "API Login and API Key are required"
         try:
             r = requests.get(API_BASE + "/account/info",
-                             params={"login": login, "key": key}, timeout=20,
-                             headers={"User-Agent": "upload-manager/1.0"})
+                             params={"login": login, "key": key},
+                             timeout=request_timeout(), headers=HEADERS)
             r.raise_for_status()
             data = r.json()
             if int(data.get("status", 0)) != 200:
-                return False, "Invalid credentials: %s" % data.get("msg", "")
+                return False, f"Invalid credentials: {data.get('msg', '')}"
             res = data.get("result") or {}
             email = res.get("email") if isinstance(res, dict) else ""
-            return True, "Connected%s" % (" as %s" % email if email else "")
+            return True, f"Connected{' as ' + email if email else ''}"
         except Exception as e:
             return False, str(e)
 
@@ -74,31 +74,22 @@ class StreamTapeProvider(BaseProvider):
 
         fh = open(local_path, "rb")
         try:
-            enc = MultipartEncoder({
+            monitor = multipart_monitor({
                 "file1": (os.path.basename(local_path), fh, "application/octet-stream"),
-            })
-
-            def _monitor(mon):
-                try:
-                    progress_cb(min(1.0, mon.bytes_read / max(1, mon.len)))
-                except Exception:
-                    pass
-
-            monitor = MultipartEncoderMonitor(enc, _monitor)
+            }, progress_cb)
             r = requests.post(
                 upload_url, data=monitor,
-                headers={"Content-Type": monitor.content_type,
-                         "User-Agent": "upload-manager/1.0"},
-                timeout=(30, 7200),
+                headers={"Content-Type": monitor.content_type, **HEADERS},
+                timeout=request_timeout(),
             )
         finally:
             fh.close()
 
         if r.status_code not in (200, 201):
-            raise RuntimeError("HTTP %s: %s" % (r.status_code, r.text[:200]))
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
         try:
             data = r.json()
         except Exception:
-            raise RuntimeError("Invalid upload response: %s" % r.text[:200])
+            raise RuntimeError(f"Invalid upload response: {r.text[:200]}") from None
         if int(data.get("status", 0)) != 200:
-            raise RuntimeError("Upload error: %s" % data.get("msg", ""))
+            raise RuntimeError(f"Upload error: {data.get('msg', '')}")

@@ -48,10 +48,10 @@ class SFTPProvider(BaseProvider):
             cur += "/" + p
             try:
                 sftp.stat(cur)
-            except IOError:
+            except OSError:
                 try:
                     sftp.mkdir(cur)
-                except IOError:
+                except OSError:
                     pass
 
     def upload(self, local_path, remote_path, progress_cb):
