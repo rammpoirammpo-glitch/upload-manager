@@ -38,8 +38,14 @@ class S3Provider(BaseProvider):
         root = self.config.get("root", "").strip("/")
         return root + "/" + remote_path if root else remote_path
 
+    def _require(self, *keys):
+        missing = [k for k in keys if not (self.config.get(k) or "").strip()]
+        if missing:
+            raise ValueError("Missing required S3 setting(s): " + ", ".join(missing))
+
     def test(self):
         try:
+            self._require("access_key", "secret_key", "bucket")
             c = self._client()
             try:
                 c.head_bucket(Bucket=self.config["bucket"])
@@ -50,6 +56,8 @@ class S3Provider(BaseProvider):
             return False, str(e)
 
     def upload(self, local_path, remote_path, progress_cb):
+        self._require("access_key", "secret_key", "bucket")
+
         class _Progress:
             def __init__(self):
                 self.seen = 0

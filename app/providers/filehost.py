@@ -38,7 +38,21 @@ class FileHostProvider(BaseProvider):
     def _key(self):
         return self.config.get("api_key", "")
 
+    @staticmethod
+    def _status_ok(data):
+        """Xvids-style APIs report success as status==200, but some clones
+        return the code as a string, as True/1, or omit it entirely."""
+        s = data.get("status", 200) if isinstance(data, dict) else 200
+        if isinstance(s, bool):
+            return s
+        try:
+            return int(s) == 200
+        except (TypeError, ValueError):
+            return bool(s)
+
     def _call(self, path, params):
+        if not self._api():
+            raise RuntimeError("API host is not configured")
         r = requests.get(self._api() + path, params=params, timeout=20,
                          headers={"User-Agent": "upload-manager/1.0"})
         r.raise_for_status()
@@ -46,7 +60,7 @@ class FileHostProvider(BaseProvider):
             data = r.json()
         except Exception:
             raise RuntimeError(f"Invalid API response: {r.text[:200]}")
-        if int(data.get("status", 200)) != 200:
+        if not self._status_ok(data):
             raise RuntimeError(f"API error {data.get('status')}: {data.get('msg', '')}")
         return data
 
@@ -64,9 +78,14 @@ class FileHostProvider(BaseProvider):
         except Exception:
             return ""
         result = data.get("result") or {}
-        folders = (result.get("folders") or []) if isinstance(result, dict) else []
+        if isinstance(result, list):
+            folders = result
+        elif isinstance(result, dict):
+            folders = result.get("folders") or []
+        else:
+            folders = []
         for f in folders:
-            if str(f.get("name")) == name:
+            if isinstance(f, dict) and str(f.get("name")) == name:
                 return str(f.get("fld_id", ""))
         try:
             created = self._call("/api/folder/create",
@@ -163,7 +182,7 @@ class FileHostProvider(BaseProvider):
             data = r.json()
         except Exception:
             raise RuntimeError(f"Invalid upload response: {r.text[:200]}")
-        if int(data.get("status", 200)) != 200:
+        if not self._status_ok(data):
             raise RuntimeError(f"API error: {data.get('msg', '')}")
         files = data.get("files") or []
         if not files:

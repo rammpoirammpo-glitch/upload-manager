@@ -118,12 +118,25 @@ def list_watchpaths():
     return {"paths": out}
 
 
-def _clean_provider_ids(raw):
-    """Normalize provider_ids to a canonical comma-separated id list."""
+def _existing_provider_ids():
+    with connect() as conn:
+        rows = conn.execute("SELECT id FROM providers").fetchall()
+    return {r["id"] for r in rows}
+
+
+def _clean_provider_ids(raw, valid_ids=None):
+    """Normalize provider_ids to a canonical comma-separated id list.
+
+    Ids that do not reference a real provider are dropped, so a watch path can
+    never route to a deleted provider (which would leave items stuck 'pending'
+    forever). Callers pass valid_ids=None to skip the DB lookup (tests).
+    """
+    if valid_ids is None:
+        valid_ids = _existing_provider_ids()
     ids = []
     for x in (raw or "").split(","):
         x = x.strip()
-        if x.isdigit():
+        if x.isdigit() and int(x) in valid_ids:
             ids.append(str(int(x)))
     return ",".join(ids)
 
@@ -196,7 +209,7 @@ def list_queue(status: str = None, limit: int = 500):
         q += " WHERE status=?"
         params.append(status)
     q += " ORDER BY id DESC LIMIT ?"
-    params.append(min(limit, 2000))
+    params.append(max(1, min(limit, 2000)))
     with connect() as conn:
         rows = conn.execute(q, params).fetchall()
     return {"items": [_item_with_tasks(r) for r in rows]}
@@ -222,9 +235,17 @@ def retry_item(qid: int):
 @router.post("/api/queue/{qid}/skip")
 def skip_item(qid: int):
     with connect() as conn:
+        row = conn.execute(
+            "SELECT status FROM queue_items WHERE id=?", (qid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Item not found")
+        if row["status"] == "uploading":
+            raise HTTPException(409, "Item is still uploading; wait for it to finish")
+        # Skip every task that has not already completed: both failed tasks
+        # and tasks that were never started.
         conn.execute(
             "UPDATE upload_tasks SET status='skipped', error='Skipped by user' "
-            "WHERE item_id=? AND status='failed'", (qid,))
+            "WHERE item_id=? AND status IN ('failed','pending')", (qid,))
         conn.execute(
             "UPDATE queue_items SET status='skipped', error=NULL, "
             "updated_at=datetime('now') WHERE id=?", (qid,))
@@ -272,6 +293,17 @@ def get_logs(lines: int = 300):
 def manual_scan(request: Request):
     result = request.app.state.watcher.scan_once()
     return {"ok": True, **result}
+
+
+@router.get("/api/health")
+def health():
+    """Liveness endpoint for the background daemon / umbrelOS healthchecks."""
+    try:
+        with connect() as conn:
+            conn.execute("SELECT 1")
+    except Exception:
+        raise HTTPException(503, "Database unavailable")
+    return {"ok": True}
 
 
 @router.post("/api/pause")

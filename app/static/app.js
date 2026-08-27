@@ -305,8 +305,10 @@ async function refreshPaths() {
     const remoteBadge = remoteDir
       ? `<span class="st-badge st-completed">cloud folder: ${esc(remoteDir)} (auto)</span>`
       : "";
-    const provLabel = p.provider_ids
-      ? `providers: ${esc(p.provider_ids)}`
+    const provNames = (p.provider_ids || "").split(",").filter(x => x)
+      .map(id => { const m = _providersForSelect.find(x => String(x.id) === id); return m ? m.name : "#" + id; });
+    const provLabel = provNames.length
+      ? `providers: ${esc(provNames.join(", "))}`
       : "providers: all";
     return `<div class="card path-card">
       <div><code>${esc(p.path)}</code> ${existsBadge}

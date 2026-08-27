@@ -27,6 +27,31 @@ def _enabled_providers():
     return out
 
 
+class ProgressThrottler:
+    """Decides whether a progress percentage is worth persisting.
+
+    Upload progress callbacks fire per network chunk; writing every chunk to
+    SQLite would hammer the database on large files. We only write when the
+    value moved by at least `min_delta` points OR at least `interval` seconds
+    have elapsed since the last write, so the dashboard still updates smoothly
+    without the DB write storm.
+    """
+
+    def __init__(self, interval=2.0, min_delta=1.0):
+        self.interval = interval
+        self.min_delta = min_delta
+        self._last_write = 0.0
+        self._last_pct = -1.0
+
+    def should_write(self, pct):
+        now = time.monotonic()
+        if (now - self._last_write) < self.interval and abs(pct - self._last_pct) < self.min_delta:
+            return False
+        self._last_write = now
+        self._last_pct = pct
+        return True
+
+
 def _selected_providers(providers, provider_ids):
     """Filter the enabled providers down to the ones chosen for a watch path.
 
@@ -49,6 +74,9 @@ class QueueScheduler(threading.Thread):
         self._active = set()
         self._lock = threading.Lock()
         self.notifier = notifier
+        # Cap of parallel upload workers per item, so an item routed to many
+        # providers cannot spawn an unbounded number of threads.
+        self.max_providers_per_item = 8
 
     def run(self):
         logger.info("Queue scheduler started (concurrency=%d)", self.concurrency)
@@ -56,9 +84,30 @@ class QueueScheduler(threading.Thread):
             try:
                 if not self.paused:
                     self._step()
+                    self._recover_stale_uploading()
             except Exception:
                 logger.exception("scheduler step failed")
             time.sleep(3)
+
+    def _recover_stale_uploading(self):
+        """Watchdog: reset items stuck in 'uploading' whose worker thread is
+        gone (e.g. the thread was killed without the finally block running).
+        Without this, a single crash would consume a concurrency slot and
+        stall the whole queue until restart."""
+        with self._lock:
+            active = set(self._active)
+        with connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM queue_items WHERE status='uploading'").fetchall()
+        for r in rows:
+            if r["id"] not in active:
+                logger.warning(
+                    "Recovering stale 'uploading' item %s (worker thread gone); "
+                    "resetting to pending", r["id"])
+                with connect() as conn:
+                    conn.execute(
+                        "UPDATE queue_items SET status='pending', updated_at=datetime('now') "
+                        "WHERE id=?", (r["id"],))
 
     def _step(self):
         # If no provider is enabled yet, do not start items: this avoids
@@ -145,7 +194,10 @@ class QueueScheduler(threading.Thread):
             remote_dir = (item["remote_dir"] or "").strip().strip("/")
             if remote_dir:
                 remote = remote_dir + "/" + remote
-            with ThreadPoolExecutor(max_workers=len(providers),
+            # Upload to the selected providers in parallel, but never spawn
+            # more than a sane number of threads per item.
+            workers = min(len(providers), self.max_providers_per_item)
+            with ThreadPoolExecutor(max_workers=workers,
                                     thread_name_prefix="upload") as ex:
                 futures = [ex.submit(self._upload_to_provider, item_id, p, remote)
                            for p in providers]
@@ -160,6 +212,14 @@ class QueueScheduler(threading.Thread):
                     "SELECT t.*, p.name AS provider_name FROM upload_tasks t "
                     "JOIN providers p ON p.id=t.provider_id WHERE t.item_id=?",
                     (item_id,)).fetchall()
+            if not tasks:
+                # All upload tasks disappeared while the workers were running
+                # (e.g. the user deleted every provider mid-upload). We have no
+                # proof the file reached anywhere, so never mark it completed
+                # and never delete the local file.
+                self._mark_failed(
+                    item_id, "All upload tasks were removed while uploading")
+                return
             # Any task that is not 'completed' (e.g. 'pending' because its worker
             # crashed, or 'failed') means the file did NOT finish uploading, so
             # we must NOT delete it.
@@ -231,11 +291,27 @@ class QueueScheduler(threading.Thread):
                     (item_id, provider_id))
             return
 
-        inst = cls(prov["config"])
+        try:
+            inst = cls(prov["config"])
+        except Exception as e:
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE upload_tasks SET status='failed', error=?, "
+                    "updated_at=datetime('now') WHERE item_id=? AND provider_id=?",
+                    ("Provider init failed: %s" % str(e)[:300], item_id, provider_id))
+            return
         max_attempts = max(1, config.RETRY_MAX)
+
+        # Throttle progress writes: large files would otherwise generate one
+        # SQLite UPDATE per network chunk (hundreds of thousands), hammering
+        # the database. We persist at most every ~2s and only when the
+        # percentage moved by at least 1 point.
+        throttler = ProgressThrottler(interval=2.0, min_delta=1.0)
 
         def progress(fraction):
             pct = round(min(1.0, max(0.0, fraction)) * 100, 1)
+            if not throttler.should_write(pct):
+                return
             try:
                 with connect() as conn:
                     conn.execute(

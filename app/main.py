@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
     scheduler.join(timeout=5)
 
 
-app = FastAPI(title="Upload Manager", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Upload Manager", version="1.3.0", lifespan=lifespan)
 app.include_router(router)
 
 
@@ -77,8 +77,18 @@ if config.AUTH_USER:
         except Exception:
             raise HTTPException(401, "Unauthorized",
                                 headers={"WWW-Authenticate": "Basic"})
-        if not (secrets.compare_digest(user, config.AUTH_USER)
-                and secrets.compare_digest(password, config.AUTH_PASS)):
+        # compare_digest only accepts ASCII str, so hash both sides to bytes
+        # first: non-ASCII passwords must not crash the request (500) or
+        # bypass the check.
+        def _eq(a, b):
+            try:
+                return secrets.compare_digest(a, b)
+            except TypeError:
+                return secrets.compare_digest(
+                    str(a).encode("utf-8", "replace"),
+                    str(b).encode("utf-8", "replace"))
+
+        if not (_eq(user, config.AUTH_USER) and _eq(password, config.AUTH_PASS)):
             raise HTTPException(401, "Unauthorized",
                                 headers={"WWW-Authenticate": "Basic"})
         return await call_next(request)
