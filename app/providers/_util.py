@@ -24,6 +24,17 @@ def request_timeout():
     return (config.CONNECT_TIMEOUT, config.READ_TIMEOUT)
 
 
+def sanitize_path(path):
+    """Sanitize a user-supplied remote path for path-traversal safety.
+
+    Drops empty, ``.`` and ``..`` segments so a watch-path remote folder like
+    ``../../etc`` can never escape the intended cloud root (LocalProvider,
+    WebDAV, SFTP) or inject ``..`` into an S3 key.
+    """
+    return "/".join(seg for seg in (path or "").split("/")
+                     if seg not in ("", ".", ".."))
+
+
 def new_session():
     """A requests.Session with a connection pool and keep-alive enabled.
 

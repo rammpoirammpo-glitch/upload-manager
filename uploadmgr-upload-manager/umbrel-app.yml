@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.5.0"
+version: "1.5.1"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,20 +35,23 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  High-speed upload release (1.5.0). S3/R2/B2 uploads are now split into
-  parallel multipart parts (S3_CHUNK_SIZE_MB parts, S3_MAX_CONCURRENCY at
-  once) to saturate 1Gbps+ uplinks, and they RESUME byte-level across retries
-  and container restarts: the multipart upload id is persisted per task and a
-  retry lists the already-uploaded parts from the server and only uploads the
-  missing ones. All HTTP providers (StreamHG/EarnVids/Vidoza/LuluStream,
-  Mixdrop, StreamTape, WebDAV) now use keep-alive connection pooling
-  (requests.Session + HTTPAdapter) so repeated calls to the same host reuse
-  TCP/TLS connections. Retries are handled by the tenacity library (capped
-  exponential backoff + jitter) with attempts and resume state persisted to
-  the database. Logs are rotated (5MB x 5) so the disk cannot fill, and
-  /api/status now reports the process memory (RSS) to catch leaks on 24/7
-  runs. Data safety unchanged: a file is deleted locally only after every
-  provider confirms success. Includes a CI workflow (ruff + 38 tests) with
-  in-memory S3 (moto) coverage of parallel multipart and resume.
+  Security & stress-hardening release (1.5.1), the result of a full code
+  audit and stress test. Path traversal is now impossible: watch-path remote
+  folders are sanitized (never emit .. segments) and the Local provider
+  refuses to write outside its target directory or overwrite the source file.
+  SFTP uploads got explicit socket/channel timeouts + keepalive, so a dead
+  remote host can no longer freeze a worker (and the queue) forever. The
+  scheduler scans pending items with a bounded LIMIT, so queues with tens of
+  thousands of items stay cheap per tick. Orphaned S3 multipart uploads are
+  aborted when their queue item is deleted (no server-side leaks), and
+  botocore's internal retries are bounded. A watcher memory leak was fixed:
+  queued files no longer keep an in-memory entry forever when
+  DELETE_AFTER_UPLOAD=false. Notification spam for deleted items is
+  suppressed, and worker threads survive items being deleted mid-upload.
+  Added 11 stress/security tests: 150-file concurrent stress with zero
+  cross-routing, weird/unicode/long filenames, provider-crash file safety
+  (local file survives failed uploads), path-traversal and self-overwrite
+  blocking, memory-bound checks and the full self-heal watchdog cycle.
+  CI now runs ruff + 49 tests.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

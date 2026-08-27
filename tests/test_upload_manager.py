@@ -12,6 +12,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -613,6 +614,7 @@ class S3MultipartTests(unittest.TestCase):
     def setUpClass(cls):
         import app.providers.s3 as s3mod
 
+        init_db()  # earlier classes may have removed the shared DATA_DIR
         cls._s3mod = s3mod
         cls._old_chunk = config.S3_CHUNK_SIZE_MB
         # 5MB chunks (S3 real minimum for non-last parts) -> 3 parts for 12MB
@@ -713,6 +715,41 @@ class S3MultipartTests(unittest.TestCase):
         # Attempt 1 called upload_part 3 times; attempt 2 only once for the
         # missing part -> 4 calls, never a full re-upload.
         self.assertEqual(calls["n"], 4)
+
+    def test_abort_orphaned_multipart(self):
+        from app.queue import abort_resumable_uploads
+
+        client = boto3.client("s3", region_name="us-east-1")
+        up = client.create_multipart_upload(Bucket="testbucket", Key="movies/movie.mkv")
+        upload_id = up["UploadId"]
+        client.upload_part(Bucket="testbucket", Key="movies/movie.mkv",
+                           UploadId=upload_id, PartNumber=1,
+                           Body=b"x" * 1024 * 1024)
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO providers(name,type,config,enabled) VALUES(?,?,?,?)",
+                ("s3abort", "s3", json.dumps({
+                    "bucket": "testbucket", "access_key": "a",
+                    "secret_key": "s"}), 1))
+            pid = conn.execute(
+                "SELECT id FROM providers WHERE name='s3abort'").fetchone()["id"]
+            conn.execute(
+                "INSERT INTO queue_items(path, filename, status) VALUES(?,?,?)",
+                ("/s3abort/x.mkv", "x.mkv", "pending"))
+            iid = conn.execute(
+                "SELECT id FROM queue_items WHERE path='/s3abort/x.mkv'").fetchone()["id"]
+            conn.execute(
+                "INSERT INTO upload_tasks(item_id, provider_id, status, state) "
+                "VALUES(?,?,?,?)", (iid, pid, "failed",
+                                    json.dumps({"upload_id": upload_id})))
+
+        # Deleting the item must abort the orphaned server-side upload.
+        abort_resumable_uploads(iid)
+        uploads = client.list_multipart_uploads(Bucket="testbucket").get("Uploads", [])
+        self.assertEqual(uploads, [])
+        with connect() as conn:
+            conn.execute("DELETE FROM queue_items WHERE id=?", (iid,))
+            conn.execute("DELETE FROM providers WHERE id=?", (pid,))
 
 
 class TenacityRetryTests(unittest.TestCase):
@@ -842,6 +879,299 @@ class TenacityRetryTests(unittest.TestCase):
         self.assertEqual(adapter._pool_maxsize, config.HTTP_POOL_MAXSIZE)
         self.assertEqual(adapter._pool_connections, config.HTTP_POOL_CONNECTIONS)
         self.assertEqual(adapter.max_retries.total, 0)  # queue owns retries
+
+
+class SecurityStressTests(unittest.TestCase):
+    """Security & stress: path traversal, weird filenames, provider crashes,
+    memory bounds, watchdog self-healing and large concurrent queues.
+
+    Every test is fully isolated: fresh directories and a wiped DB in setUp,
+    so no test can leak files/state into another."""
+
+    def setUp(self):
+        init_db()
+        self.dir_a = tempfile.mkdtemp(prefix="stressA-")
+        self.dir_b = tempfile.mkdtemp(prefix="stressB-")
+        self.target_a = tempfile.mkdtemp(prefix="stressTA-")
+        self.target_b = tempfile.mkdtemp(prefix="stressTB-")
+        with connect() as conn:
+            conn.execute("DELETE FROM queue_items")
+            conn.execute("DELETE FROM upload_tasks")
+            conn.execute("DELETE FROM providers")
+            conn.execute("DELETE FROM watch_paths")
+            for name, cfg, d in (("stressA", self.target_a, self.dir_a),
+                                 ("stressB", self.target_b, self.dir_b)):
+                conn.execute(
+                    "INSERT INTO providers(name,type,config,enabled) VALUES(?,?,?,?)",
+                    (name, "local", json.dumps({"target_dir": cfg}), 1))
+                pid = conn.execute(
+                    "SELECT id FROM providers WHERE name=?", (name,)).fetchone()["id"]
+                conn.execute(
+                    "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) "
+                    "VALUES(?,?,?,?)", (d, 1, "", str(pid)))
+        self.watcher = Watcher(notifier=None)
+
+    def tearDown(self):
+        for d in (self.dir_a, self.dir_b, self.target_a, self.target_b):
+            shutil.rmtree(d, ignore_errors=True)
+
+    def _write(self, d, name, size=2048):
+        p = os.path.join(d, name)
+        with open(p, "wb") as f:
+            f.write(b"x" * size)
+        os.utime(p, (1, 1))
+        return p
+
+    def test_sanitize_path(self):
+        from app.providers._util import sanitize_path
+
+        # ``..`` segments are DROPPED (never emitted), not resolved, so no
+        # traversal is ever possible; the result is always a safe flat path.
+        self.assertEqual(sanitize_path("../../etc"), "etc")
+        self.assertEqual(sanitize_path("../a/./b/../c"), "a/b/c")
+        self.assertEqual(sanitize_path(""), "")
+        self.assertEqual(sanitize_path("movies"), "movies")
+        self.assertEqual(sanitize_path("/abs/../x"), "abs/x")
+
+    def test_local_provider_blocks_traversal(self):
+        from app.providers.local import LocalProvider
+
+        src = self._write(self.dir_a, "traversal-src.mkv")
+        prov = LocalProvider({"target_dir": self.target_a})
+        with self.assertRaises(RuntimeError):
+            prov.upload(src, "../../escape/file.mkv", lambda f: None)
+        self.assertFalse(os.path.exists(
+            os.path.join(os.path.dirname(self.target_a), "escape", "file.mkv")))
+
+    def test_local_provider_blocks_self_overwrite(self):
+        from app.providers.local import LocalProvider
+
+        prov = LocalProvider({"target_dir": self.dir_a})  # target == source dir
+        with self.assertRaises(RuntimeError):
+            prov.upload(os.path.join(self.dir_a, "self.mkv"), "self.mkv", lambda f: None)
+
+    @unittest.skipUnless(_HAVE_HTTPX, "httpx not installed (dev dependency)")
+    def test_watchpath_remote_dir_sanitized_via_api(self):
+        with TestClient(app) as c:
+            c.post("/api/pause")
+            r = c.post("/api/watchpaths", json={
+                "path": self.dir_a, "enabled": True,
+                "remote_dir": "../../movies", "provider_ids": ""})
+            self.assertEqual(r.status_code, 201, r.text)
+            saved = next(p for p in c.get("/api/watchpaths").json()["paths"]
+                         if p["path"] == os.path.abspath(self.dir_a))
+            self.assertEqual(saved["remote_dir"], "movies")
+
+    def test_weird_filenames_upload_cleanly(self):
+        names = [
+            "Mój film 100% #1 (2024).mkv",
+            "a\"b'c!@#$%^&*.mkv",
+            "テスト映画 🎬.mkv",
+            "file with spaces & ampersand.mkv",
+            "ünïcödé-ü.mkv",
+            "x" * 200 + ".mkv",
+        ]
+        paths = [self._write(self.dir_a, name) for name in names]
+        res = self.watcher.scan_once()
+        self.assertEqual(res["queued"], len(names), res)
+        sched = QueueScheduler(notifier=None, concurrency=4)
+        for p in paths:
+            with connect() as conn:
+                item = conn.execute(
+                    "SELECT * FROM queue_items WHERE path=?", (p,)).fetchone()
+            sched._process_item(item["id"])
+        cf = os.path.basename(self.dir_a.rstrip(os.sep))
+        for name in names:
+            self.assertTrue(os.path.exists(os.path.join(self.target_a, cf, name)), name)
+
+    def test_provider_crash_keeps_file_and_continues(self):
+        from app.providers.local import LocalProvider
+
+        original = LocalProvider.upload
+        old_backoff = (config.RETRY_BACKOFF, config.RETRY_BACKOFF_CAP, config.RETRY_JITTER)
+        config.RETRY_BACKOFF, config.RETRY_BACKOFF_CAP, config.RETRY_JITTER = 0, 1, 0
+
+        def _down(self, local_path, remote_path, progress_cb, resume_state=None):
+            raise ConnectionError("simulated API timeout")
+
+        LocalProvider.upload = _down
+        try:
+            doomed = self._write(self.dir_a, "doomed-crash.mkv")
+            self.watcher.scan_once()
+            with connect() as conn:
+                item = conn.execute(
+                    "SELECT * FROM queue_items WHERE path=?", (doomed,)).fetchone()
+            sched = QueueScheduler(notifier=None, concurrency=2)
+            sched._process_item(item["id"])
+        finally:
+            LocalProvider.upload = original
+            (config.RETRY_BACKOFF, config.RETRY_BACKOFF_CAP, config.RETRY_JITTER) = old_backoff
+
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM queue_items WHERE path=?", (doomed,)).fetchone()
+            task = conn.execute(
+                "SELECT * FROM upload_tasks WHERE item_id=?", (row["id"],)).fetchone()
+        self.assertEqual(row["status"], "failed")
+        self.assertEqual(task["attempts"], config.RETRY_MAX)
+        self.assertIn("simulated API timeout", task["error"])
+        # Data safety: the local file must still exist after a failed upload.
+        self.assertTrue(os.path.exists(doomed))
+
+        # The queue is not wedged: a healthy upload still works afterwards.
+        healthy = self._write(self.dir_a, "healthy-after-crash.mkv")
+        self.watcher.scan_once()
+        with connect() as conn:
+            item = conn.execute(
+                "SELECT * FROM queue_items WHERE path=?", (healthy,)).fetchone()
+        sched = QueueScheduler(notifier=None, concurrency=2)
+        sched._process_item(item["id"])
+        with connect() as conn:
+            st = conn.execute(
+                "SELECT status FROM queue_items WHERE path=?", (healthy,)).fetchone()
+        self.assertEqual(st["status"], "completed")
+
+    def test_upload_without_remote_dir(self):
+        # Regression: AUTO_REMOTE_FOLDER off + empty remote_dir must still
+        # upload (a past bug skipped the upload entirely in this case).
+        old = config.AUTO_REMOTE_FOLDER
+        config.AUTO_REMOTE_FOLDER = False
+        try:
+            d = tempfile.mkdtemp(prefix="noroot-")
+            t = tempfile.mkdtemp(prefix="noroot-target-")
+            with connect() as conn:
+                conn.execute(
+                    "INSERT INTO providers(name,type,config,enabled) VALUES(?,?,?,?)",
+                    ("noroot", "local", json.dumps({"target_dir": t}), 1))
+                conn.execute(
+                    "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) "
+                    "VALUES(?,?,?,?)", (d, 1, "", ""))
+            p = self._write(d, "plain.mkv")
+            self.watcher.scan_once()
+            with connect() as conn:
+                item = conn.execute(
+                    "SELECT * FROM queue_items WHERE path=?", (p,)).fetchone()
+            sched = QueueScheduler(notifier=None, concurrency=1)
+            sched._process_item(item["id"])
+            with connect() as conn:
+                st = conn.execute(
+                    "SELECT status FROM queue_items WHERE id=?", (item["id"],)).fetchone()
+            self.assertEqual(st["status"], "completed")
+            self.assertTrue(os.path.exists(os.path.join(t, "plain.mkv")))
+        finally:
+            config.AUTO_REMOTE_FOLDER = old
+
+    def test_stable_dict_bounded(self):
+        w = Watcher(notifier=None)
+        d = tempfile.mkdtemp(prefix="stable-")
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) "
+                "VALUES(?,?,?,?)", (d, 1, "", ""))
+        for i in range(50):
+            p = os.path.join(d, f"f{i}.mkv")
+            with open(p, "wb") as f:
+                f.write(b"x" * 100)
+            os.utime(p)  # mtime = now -> age < STABLE_SECONDS
+        w.scan_once()
+        with w._stable_lock:
+            self.assertEqual(len(w._stable), 50)
+        # files still fresh on the next scan -> still bounded at 50
+        for i in range(50):
+            os.utime(os.path.join(d, f"f{i}.mkv"))
+        w.scan_once()
+        with w._stable_lock:
+            self.assertEqual(len(w._stable), 50)
+        # once they stop changing, they are queued and removed from the table
+        for i in range(50):
+            os.utime(os.path.join(d, f"f{i}.mkv"), (1, 1))
+        w.scan_once()
+        with w._stable_lock:
+            self.assertEqual(len(w._stable), 0)
+        with connect() as conn:
+            conn.execute("DELETE FROM watch_paths WHERE path=?", (d,))
+            conn.execute("DELETE FROM queue_items WHERE path LIKE ?", (d + "%",))
+
+    def test_full_self_heal_cycle(self):
+        # stuck 'uploading' (worker died) -> watchdog resets -> reprocessed
+        src = self._write(self.dir_a, "selfheal.mkv")
+        self.watcher.scan_once()
+        with connect() as conn:
+            iid = conn.execute(
+                "SELECT id FROM queue_items WHERE path=?", (src,)).fetchone()["id"]
+            conn.execute(
+                "UPDATE queue_items SET status='uploading' WHERE id=?", (iid,))
+        sched = QueueScheduler(notifier=None, concurrency=2)
+        sched._recover_stale_uploading()
+        with connect() as conn:
+            st = conn.execute(
+                "SELECT status FROM queue_items WHERE id=?", (iid,)).fetchone()["status"]
+        self.assertEqual(st, "pending")
+        sched._process_item(iid)
+        with connect() as conn:
+            st = conn.execute(
+                "SELECT status FROM queue_items WHERE id=?", (iid,)).fetchone()["status"]
+        self.assertEqual(st, "completed")
+
+    def test_stress_150_files_no_race(self):
+        # 75 movies + 75 series arrive at once; the real scheduler step loop
+        # races with worker threads. Everything must complete exactly once
+        # with zero cross-routing.
+        for i in range(75):
+            self._write(self.dir_a, f"Movie.{i:03d}.mkv")
+            self._write(self.dir_b, f"Show.S{i:02d}E01.mkv")
+        res = self.watcher.scan_once()
+        self.assertEqual(res["queued"], 150, res)
+        with connect() as conn:
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM queue_items WHERE status='pending'").fetchone()["c"]
+        self.assertEqual(n, 150)
+
+        sched = QueueScheduler(notifier=None, concurrency=4)
+        stop = {"go": True}
+
+        def _drive():
+            while stop["go"]:
+                sched._step()
+                sched._recover_stale_uploading()
+                time.sleep(0.02)
+
+        driver = threading.Thread(target=_drive, daemon=True)
+        driver.start()
+        try:
+            deadline = time.time() + 90
+            while time.time() < deadline:
+                with connect() as conn:
+                    done = conn.execute(
+                        "SELECT COUNT(*) AS c FROM queue_items WHERE status='completed'").fetchone()["c"]
+                    failed = conn.execute(
+                        "SELECT COUNT(*) AS c FROM queue_items WHERE status='failed'").fetchone()["c"]
+                if done >= 150:
+                    break
+                time.sleep(0.25)
+        finally:
+            stop["go"] = False
+        self.assertEqual(done, 150, f"failed={failed}")
+        self.assertEqual(failed, 0)
+        with connect() as conn:
+            uploading = conn.execute(
+                "SELECT COUNT(*) AS c FROM queue_items WHERE status='uploading'").fetchone()["c"]
+        self.assertEqual(uploading, 0)
+        self.assertEqual(len(sched._active), 0)
+
+        cf_a = os.path.basename(self.dir_a.rstrip(os.sep))
+        cf_b = os.path.basename(self.dir_b.rstrip(os.sep))
+        for i in range(75):
+            self.assertTrue(os.path.exists(
+                os.path.join(self.target_a, cf_a, f"Movie.{i:03d}.mkv")))
+            self.assertFalse(os.path.exists(
+                os.path.join(self.target_b, cf_a, f"Movie.{i:03d}.mkv")))
+            self.assertTrue(os.path.exists(
+                os.path.join(self.target_b, cf_b, f"Show.S{i:02d}E01.mkv")))
+            self.assertFalse(os.path.exists(
+                os.path.join(self.target_a, cf_b, f"Show.S{i:02d}E01.mkv")))
+        self.assertEqual(len(os.listdir(os.path.join(self.target_a, cf_a))), 75)
+        self.assertEqual(len(os.listdir(os.path.join(self.target_b, cf_b))), 75)
 
 
 if __name__ == "__main__":

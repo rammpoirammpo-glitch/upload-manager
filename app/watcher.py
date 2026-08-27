@@ -5,6 +5,7 @@ import time
 
 from . import config
 from .database import connect
+from .providers._util import sanitize_path
 
 logger = logging.getLogger("uploader.watcher")
 
@@ -121,6 +122,11 @@ class Watcher(threading.Thread):
                 self._stable.pop(path, None)
                 return self._enqueue(path, root, st.st_size, remote_dir, provider_ids)
             if age >= config.STABLE_SECONDS:
+                # Memory guard: the entry MUST be dropped once the file is
+                # queued. Without this pop, every completed file would keep a
+                # dict entry forever when DELETE_AFTER_UPLOAD=false, growing
+                # without bound on a 24/7 install.
+                self._stable.pop(path, None)
                 return self._enqueue(path, root, st.st_size, remote_dir, provider_ids)
             self._stable[path] = (st.st_size, st.st_mtime, now)
         return False
@@ -134,7 +140,7 @@ class Watcher(threading.Thread):
         rel_dir = os.path.dirname(rel)
         base = os.path.basename(root.rstrip("/")) or "root"
         folder = base if rel_dir in ("", "/") else base + "/" + rel_dir
-        remote_dir = (remote_dir or "").strip().strip("/")
+        remote_dir = sanitize_path(remote_dir)
         provider_ids = (provider_ids or "").strip()
         with connect() as conn:
             existing = conn.execute(

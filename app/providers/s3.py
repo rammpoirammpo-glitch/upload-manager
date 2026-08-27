@@ -68,6 +68,10 @@ class S3Provider(BaseProvider):
             config=Config(
                 signature_version="s3v4",
                 s3={"addressing_style": "path" if cfg.get("path_style", True) else "auto"},
+                # The queue owns the retry policy; bound botocore's internal
+                # retries so a dead endpoint fails fast instead of hanging the
+                # worker (and the dashboard's Test button).
+                retries={"max_attempts": 2, "mode": "standard"},
             ),
         )
 
@@ -179,3 +183,18 @@ class S3Provider(BaseProvider):
             MultipartUpload={"Parts": parts})
         progress_cb(1.0)
         return None  # fully uploaded and confirmed by the server
+
+    def abort_upload(self, remote_path, state):
+        """Best-effort abort of an orphaned multipart upload (e.g. its queue
+        item was deleted by the user). Prevents server-side resource leaks."""
+        upload_id = (state or {}).get("upload_id")
+        if not upload_id:
+            return
+        try:
+            self._client().abort_multipart_upload(
+                Bucket=self.config["bucket"],
+                Key=self._key(remote_path),
+                UploadId=upload_id,
+            )
+        except Exception:
+            pass  # already aborted / expired server-side — nothing to do

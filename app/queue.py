@@ -17,6 +17,7 @@ from tenacity import (
 from . import config
 from .database import connect
 from .providers import get_provider_class
+from .providers._util import sanitize_path
 from .providers.s3 import S3MultipartError
 
 logger = logging.getLogger("uploader.queue")
@@ -78,6 +79,43 @@ def _load_task_state(item_id, provider_id):
 
 def _dump_state(state):
     return json.dumps(state) if state else None
+
+
+def abort_resumable_uploads(item_id):
+    """Abort any resumable (S3 multipart) upload left behind by a task that is
+    about to be deleted, so the provider's server does not accumulate orphaned
+    multipart uploads. Best-effort: failures are logged, never raised."""
+    try:
+        with connect() as conn:
+            item = conn.execute(
+                "SELECT * FROM queue_items WHERE id=?", (item_id,)).fetchone()
+            if not item:
+                return
+            tasks = conn.execute(
+                "SELECT t.state, p.config AS pconfig "
+                "FROM upload_tasks t JOIN providers p ON p.id=t.provider_id "
+                "WHERE t.item_id=? AND t.state IS NOT NULL", (item_id,)).fetchall()
+        remote = item["rel_path"] or os.path.basename(item["path"])
+        remote = remote.replace(os.sep, "/")
+        remote_dir = sanitize_path(item["remote_dir"])
+        if remote_dir:
+            remote = remote_dir + "/" + remote
+        for t in tasks:
+            try:
+                state = json.loads(t["state"] or "{}")
+            except Exception:
+                continue
+            if not state.get("upload_id"):
+                continue
+            try:
+                cls = get_provider_class("s3")
+                inst = cls(json.loads(t["pconfig"] or "{}"))
+                inst.abort_upload(remote, state)
+            except Exception:
+                logger.warning("Could not abort S3 multipart upload for item %s",
+                               item_id)
+    except Exception:
+        logger.exception("abort_resumable_uploads failed for item %s", item_id)
 
 
 def compute_retry_delay(attempt):
@@ -186,9 +224,15 @@ class QueueScheduler(threading.Thread):
         free = self.concurrency - len(active)
         if free <= 0:
             return
+        # Bounded scan: only load the rows we could possibly start this tick
+        # (plus headroom for blocked items). With tens of thousands of pending
+        # items this keeps each 3s tick cheap instead of slurping the whole
+        # table into memory.
+        limit = free * 4 + 50
         with connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM queue_items WHERE status='pending' ORDER BY id").fetchall()
+                "SELECT * FROM queue_items WHERE status='pending' ORDER BY id LIMIT ?",
+                (limit,)).fetchall()
         started = 0
         for row in rows:
             if started >= free:
@@ -261,9 +305,10 @@ class QueueScheduler(threading.Thread):
             remote = remote.replace(os.sep, "/")
             # Optional per-watch-path remote folder: prefix the path so each
             # source (e.g. Radarr vs Sonarr) lands in its own cloud folder.
+            # Sanitized against path traversal (never emits ``..`` segments).
             # Only applied for providers that use real directory paths; the
             # FileHost provider ignores it (it only uses the file basename).
-            remote_dir = (item["remote_dir"] or "").strip().strip("/")
+            remote_dir = sanitize_path(item["remote_dir"])
             if remote_dir:
                 remote = remote_dir + "/" + remote
             # Upload to the selected providers in parallel, but never spawn
@@ -344,6 +389,8 @@ class QueueScheduler(threading.Thread):
         with connect() as conn:
             item = conn.execute(
                 "SELECT * FROM queue_items WHERE id=?", (item_id,)).fetchone()
+        if item is None:
+            return  # item deleted by the user while the worker was starting
         total = item["size"]
         if total <= 0:
             with connect() as conn:
@@ -489,10 +536,12 @@ class QueueScheduler(threading.Thread):
         with connect() as conn:
             row = conn.execute(
                 "SELECT filename FROM queue_items WHERE id=?", (item_id,)).fetchone()
-            conn.execute(
-                "UPDATE queue_items SET status='failed', error=?, "
-                "updated_at=datetime('now'), completed_at=datetime('now') "
-                "WHERE id=?", (error[:2000], item_id))
-        if self.notifier:
-            name = row["filename"] if row else f"item #{item_id}"
-            self.notifier.notify(f"Upload FAILED: {name}\n{error[:2000]}")
+            if row:
+                conn.execute(
+                    "UPDATE queue_items SET status='failed', error=?, "
+                    "updated_at=datetime('now'), completed_at=datetime('now') "
+                    "WHERE id=?", (error[:2000], item_id))
+        # If the item was deleted while a worker was finishing, do not notify:
+        # the user deliberately removed it.
+        if self.notifier and row:
+            self.notifier.notify(f"Upload FAILED: {row['filename']}\n{error[:2000]}")

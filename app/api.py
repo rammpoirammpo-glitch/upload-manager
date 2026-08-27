@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from . import config
 from .database import connect, get_setting, set_setting
 from .providers import get_all_provider_classes, get_provider_class
+from .providers._util import sanitize_path
+from .queue import abort_resumable_uploads
 
 logger = logging.getLogger("uploader.api")
 
@@ -151,7 +153,7 @@ def create_watchpath(body: WatchPathIn):
     if not (body.path or "").strip():
         raise HTTPException(400, "Path is required")
     p = os.path.abspath(body.path)
-    remote_dir = (body.remote_dir or "").strip().strip("/")
+    remote_dir = sanitize_path(body.remote_dir)
     provider_ids = _clean_provider_ids(body.provider_ids)
     with connect() as conn:
         existing = conn.execute(
@@ -174,7 +176,7 @@ def create_watchpath(body: WatchPathIn):
 
 @router.put("/api/watchpaths/{pid}")
 def update_watchpath(pid: int, body: WatchPathIn):
-    remote_dir = (body.remote_dir or "").strip().strip("/")
+    remote_dir = sanitize_path(body.remote_dir)
     provider_ids = _clean_provider_ids(body.provider_ids)
     with connect() as conn:
         row = conn.execute("SELECT * FROM watch_paths WHERE id=?", (pid,)).fetchone()
@@ -260,6 +262,12 @@ def skip_item(qid: int):
 @router.delete("/api/queue/{qid}")
 def delete_item(qid: int):
     with connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM queue_items WHERE id=?", (qid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Item not found")
+    abort_resumable_uploads(qid)
+    with connect() as conn:
         conn.execute("DELETE FROM queue_items WHERE id=?", (qid,))
     return {"ok": True}
 
@@ -269,6 +277,7 @@ def clear_queue(status: str = "completed"):
     with connect() as conn:
         rows = conn.execute("SELECT id FROM queue_items WHERE status=?", (status,)).fetchall()
         for r in rows:
+            abort_resumable_uploads(r["id"])
             conn.execute("DELETE FROM queue_items WHERE id=?", (r["id"],))
     return {"ok": True, "removed": len(rows)}
 

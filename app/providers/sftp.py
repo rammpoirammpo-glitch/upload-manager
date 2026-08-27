@@ -3,6 +3,7 @@ import posixpath
 
 import paramiko
 
+from .. import config
 from .base import BaseProvider
 
 
@@ -19,15 +20,38 @@ class SFTPProvider(BaseProvider):
     ]
 
     def _transport(self):
+        """Open an SSH transport with explicit timeouts.
+
+        Without these, a dead remote host can block a worker thread forever
+        (paramiko has no default socket deadline), which would consume a
+        concurrency slot and eventually freeze the whole queue. The socket and
+        channel timeouts turn a stall into an exception the retry logic handles.
+        """
         t = paramiko.Transport((self.config["host"], int(self.config.get("port", 22))))
-        t.connect(username=self.config.get("username", ""), password=self.config.get("password", ""))
+        t.banner_timeout = config.CONNECT_TIMEOUT
+        t.auth_timeout = config.CONNECT_TIMEOUT
+        t.connect(username=self.config.get("username", ""),
+                  password=self.config.get("password", ""))
+        try:
+            t.sock.settimeout(config.READ_TIMEOUT)
+        except Exception:
+            pass
+        t.set_keepalive(30)
         return t
+
+    def _sftp(self, t):
+        sftp = paramiko.SFTPClient.from_transport(t)
+        try:
+            sftp.get_channel().settimeout(config.READ_TIMEOUT)
+        except Exception:
+            pass
+        return sftp
 
     def test(self):
         t = None
         try:
             t = self._transport()
-            sftp = paramiko.SFTPClient.from_transport(t)
+            sftp = self._sftp(t)
             sftp.listdir(self.config.get("root", "") or "/")
             sftp.close()
             return True, "Connected"
@@ -60,7 +84,7 @@ class SFTPProvider(BaseProvider):
             raise RuntimeError("File is empty")
         t = self._transport()
         try:
-            sftp = paramiko.SFTPClient.from_transport(t)
+            sftp = self._sftp(t)
             remote = self._remote(remote_path)
             parent = posixpath.dirname(remote)
             if parent and parent != "/":
