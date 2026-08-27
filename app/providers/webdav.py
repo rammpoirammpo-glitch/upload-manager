@@ -1,8 +1,6 @@
 import os
 
-import requests
-
-from ._util import HEADERS, request_timeout
+from ._util import HEADERS, new_session, request_timeout
 from .base import BaseProvider
 
 
@@ -35,7 +33,7 @@ class WebDAVProvider(BaseProvider):
 
     def test(self):
         try:
-            r = requests.request(
+            r = new_session().request(
                 "PROPFIND", self._base() + "/",
                 auth=self._auth(), headers={"Depth": "0", **HEADERS},
                 timeout=request_timeout(), verify=self._verify(),
@@ -61,11 +59,11 @@ class WebDAVProvider(BaseProvider):
             except Exception:
                 pass
 
-    def upload(self, local_path, remote_path, progress_cb):
+    def upload(self, local_path, remote_path, progress_cb, resume_state=None):
         total = os.path.getsize(local_path)
         if total <= 0:
             raise RuntimeError("File is empty")
-        with requests.Session() as s:
+        with new_session() as s:
             s.auth = self._auth()
             s.verify = self._verify()
             remote_dir = remote_path.rsplit("/", 1)[0] if "/" in remote_path else ""

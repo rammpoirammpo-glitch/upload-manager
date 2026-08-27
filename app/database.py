@@ -121,6 +121,8 @@ def _migrate(conn):
     _add_column(conn, "watch_paths", "provider_ids", "TEXT NOT NULL DEFAULT ''")
     _add_column(conn, "queue_items", "remote_dir", "TEXT NOT NULL DEFAULT ''")
     _add_column(conn, "queue_items", "provider_ids", "TEXT NOT NULL DEFAULT ''")
+    # Resumable upload state (e.g. S3 multipart upload id + uploaded parts).
+    _add_column(conn, "upload_tasks", "state", "TEXT")
 
 
 def _add_column(conn, table, column, definition):

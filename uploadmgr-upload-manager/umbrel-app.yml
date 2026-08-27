@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.4.0"
+version: "1.5.0"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,19 +35,20 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Production-hardening release (1.4.0). Telegram is now bridged directly to the
-  logging system (every WARNING/ERROR is forwarded, rate-limited) and runs on a
-  single worker thread with per-message coalescing so a failing provider cannot
-  flood your phone. HTTP timeouts are config-driven with a sane read cap so a
-  stalled upload can never freeze a worker. Retries use capped exponential
-  backoff with jitter. Completed items older than 30 days are auto-pruned so the
-  database cannot grow forever. Scans now run in the background (the dashboard
-  never blocks even on huge folders), /api/logs reads only the file tail, and a
-  new /api/status reports thread health, last scan stats and queue/provider
-  counts. The scheduler no longer busy-loops items whose routing points at a
-  disabled/deleted provider. Full refactor: shared multipart/timeout plumbing,
-  ruff-clean code, graceful daemon shutdown, and a CI workflow (ruff + 31 tests)
-  covering routing isolation at scale, backoff bounds, pruning, notifier rate
-  limits and the complete scan/queue/upload pipeline.
+  High-speed upload release (1.5.0). S3/R2/B2 uploads are now split into
+  parallel multipart parts (S3_CHUNK_SIZE_MB parts, S3_MAX_CONCURRENCY at
+  once) to saturate 1Gbps+ uplinks, and they RESUME byte-level across retries
+  and container restarts: the multipart upload id is persisted per task and a
+  retry lists the already-uploaded parts from the server and only uploads the
+  missing ones. All HTTP providers (StreamHG/EarnVids/Vidoza/LuluStream,
+  Mixdrop, StreamTape, WebDAV) now use keep-alive connection pooling
+  (requests.Session + HTTPAdapter) so repeated calls to the same host reuse
+  TCP/TLS connections. Retries are handled by the tenacity library (capped
+  exponential backoff + jitter) with attempts and resume state persisted to
+  the database. Logs are rotated (5MB x 5) so the disk cannot fill, and
+  /api/status now reports the process memory (RSS) to catch leaks on 24/7
+  runs. Data safety unchanged: a file is deleted locally only after every
+  provider confirms success. Includes a CI workflow (ruff + 38 tests) with
+  in-memory S3 (moto) coverage of parallel multipart and resume.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager

@@ -54,7 +54,7 @@ class SFTPProvider(BaseProvider):
                 except OSError:
                     pass
 
-    def upload(self, local_path, remote_path, progress_cb):
+    def upload(self, local_path, remote_path, progress_cb, resume_state=None):
         total = os.path.getsize(local_path)
         if total <= 0:
             raise RuntimeError("File is empty")

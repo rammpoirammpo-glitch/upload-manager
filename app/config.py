@@ -46,6 +46,29 @@ PRUNE_COMPLETED_DAYS = _int("PRUNE_COMPLETED_DAYS", 30, minimum=0)
 CONNECT_TIMEOUT = _int("CONNECT_TIMEOUT", 30, minimum=1)
 READ_TIMEOUT = _int("READ_TIMEOUT", 300, minimum=10)
 
+# --- Connection pooling (keep-alive) -----------------------------------------
+# One requests.Session per provider instance with a connection pool, so
+# sequential calls to the same host (upload-server fetch + upload, retries)
+# reuse TCP/TLS connections instead of re-handshaking every time.
+HTTP_POOL_CONNECTIONS = _int("HTTP_POOL_CONNECTIONS", 10, minimum=1)
+HTTP_POOL_MAXSIZE = _int("HTTP_POOL_MAXSIZE", 20, minimum=1)
+
+# --- High-speed S3 multipart -------------------------------------------------
+# Large files are split into parts and uploaded in parallel (up to
+# S3_MAX_CONCURRENCY parts at once) to saturate 1Gbps+ uplinks. Chunk size is
+# clamped to >= 5MB (S3 minimum except for the last part).
+S3_CHUNK_SIZE_MB = _int("S3_CHUNK_SIZE_MB", 16, minimum=5)
+S3_MAX_CONCURRENCY = _int("S3_MAX_CONCURRENCY", 4, minimum=1)
+
+# --- Per-item parallelism ----------------------------------------------------
+# Max parallel provider workers spawned for a single item. Items are uploaded
+# to several providers in parallel (UPLOAD_CONCURRENCY items at a time).
+MAX_PROVIDERS_PER_ITEM = _int("MAX_PROVIDERS_PER_ITEM", 8, minimum=1)
+
+# --- Log rotation (memory/disk guard on 24/7 runs) ---------------------------
+LOG_MAX_BYTES = _int("LOG_MAX_BYTES", 5 * 1024 * 1024, minimum=1024)
+LOG_BACKUPS = _int("LOG_BACKUPS", 5, minimum=0)
+
 # Delete the local file from disk after it has been uploaded successfully
 # to ALL enabled providers, to save disk space.
 DELETE_AFTER_UPLOAD = _bool("DELETE_AFTER_UPLOAD", True)

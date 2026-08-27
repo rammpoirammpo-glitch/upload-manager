@@ -1,8 +1,6 @@
 import os
 
-import requests
-
-from ._util import HEADERS, multipart_monitor, request_timeout
+from ._util import multipart_monitor, new_session, request_timeout
 from .base import BaseProvider
 
 DEFAULT_UPLOAD_URL = "https://ul.mixdrop.ag/api"
@@ -20,6 +18,15 @@ class MixdropProvider(BaseProvider):
         {"name": "folder_id", "label": "Folder ID (optional)", "type": "text"},
     ]
 
+    def __init__(self, config):
+        super().__init__(config)
+        self._session = None
+
+    def _session(self):
+        if self._session is None:
+            self._session = new_session()
+        return self._session
+
     def _upload_url(self):
         return (self.config.get("upload_url") or DEFAULT_UPLOAD_URL).rstrip("/")
 
@@ -30,9 +37,9 @@ class MixdropProvider(BaseProvider):
             return False, "Email and API key are required"
         try:
             # folderlist returns success=true only when the key is valid.
-            r = requests.get("https://api.mixdrop.ag/folderlist",
-                             params={"email": email, "key": key},
-                             timeout=request_timeout(), headers=HEADERS)
+            r = self._session().get("https://api.mixdrop.ag/folderlist",
+                                    params={"email": email, "key": key},
+                                    timeout=request_timeout())
             r.raise_for_status()
             data = r.json()
             if not data.get("success"):
@@ -41,7 +48,7 @@ class MixdropProvider(BaseProvider):
         except Exception as e:
             return False, str(e)
 
-    def upload(self, local_path, remote_path, progress_cb):
+    def upload(self, local_path, remote_path, progress_cb, resume_state=None):
         total = os.path.getsize(local_path)
         if total <= 0:
             raise RuntimeError("File is empty")
@@ -62,9 +69,9 @@ class MixdropProvider(BaseProvider):
                 fields.append(("folder", fld))
 
             monitor = multipart_monitor(fields, progress_cb)
-            r = requests.post(
+            r = self._session().post(
                 self._upload_url(), data=monitor,
-                headers={"Content-Type": monitor.content_type, **HEADERS},
+                headers={"Content-Type": monitor.content_type},
                 timeout=request_timeout(),
             )
         finally:

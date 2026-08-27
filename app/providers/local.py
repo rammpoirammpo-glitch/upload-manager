@@ -19,7 +19,7 @@ class LocalProvider(BaseProvider):
         except Exception as e:
             return False, str(e)
 
-    def upload(self, local_path, remote_path, progress_cb):
+    def upload(self, local_path, remote_path, progress_cb, resume_state=None):
         dest = os.path.join(self.config.get("target_dir", ""), remote_path.replace("/", os.sep))
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
         total = os.path.getsize(local_path)

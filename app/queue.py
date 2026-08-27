@@ -6,9 +6,18 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from tenacity import (
+    Retrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    wait_random,
+)
+
 from . import config
 from .database import connect
 from .providers import get_provider_class
+from .providers.s3 import S3MultipartError
 
 logger = logging.getLogger("uploader.queue")
 
@@ -53,6 +62,24 @@ class ProgressThrottler:
         return True
 
 
+def _load_task_state(item_id, provider_id):
+    """Load persisted resumable-upload state (e.g. S3 multipart upload id)."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT state FROM upload_tasks WHERE item_id=? AND provider_id=?",
+            (item_id, provider_id)).fetchone()
+    if not row or not row["state"]:
+        return None
+    try:
+        return json.loads(row["state"])
+    except Exception:
+        return None
+
+
+def _dump_state(state):
+    return json.dumps(state) if state else None
+
+
 def compute_retry_delay(attempt):
     """Exponential backoff (seconds) for retry ``attempt``, with jitter and a
     hard cap so a down provider cannot stall the queue for hours.
@@ -90,7 +117,7 @@ class QueueScheduler(threading.Thread):
         self.notifier = notifier
         # Cap of parallel upload workers per item, so an item routed to many
         # providers cannot spawn an unbounded number of threads.
-        self.max_providers_per_item = 8
+        self.max_providers_per_item = config.MAX_PROVIDERS_PER_ITEM
         self.last_step_at = None
         self.started_total = 0
         self._last_prune = 0.0
@@ -363,33 +390,70 @@ class QueueScheduler(threading.Thread):
             except Exception:
                 pass
 
-        for attempt in range(1, max_attempts + 1):
+        # Resumable upload state (S3 multipart upload id + parts): persisted in
+        # upload_tasks.state so a retry — or a container restart — continues
+        # from the last uploaded part instead of re-uploading the whole file.
+        resume_state = _load_task_state(item_id, provider_id)
+        state_holder = {"state": resume_state}
+        attempts = {"n": 0}
+
+        def _attempt_upload():
+            attempts["n"] += 1
             try:
-                inst.upload(item["path"], remote, progress)
-                with connect() as conn:
-                    conn.execute(
-                        "UPDATE upload_tasks SET status='completed', progress=100, "
-                        "error=NULL, attempts=?, updated_at=datetime('now') "
-                        "WHERE item_id=? AND provider_id=?",
-                        (attempt, item_id, provider_id))
-                logger.info("Uploaded %s -> %s (provider %s)",
-                            item["filename"], remote, provider_name)
-                return
-            except Exception as e:
-                err = str(e)[:500]
-                logger.warning("Upload failed for %s (provider %s): %s",
-                               item["filename"], provider_name, err)
-                with connect() as conn:
-                    conn.execute(
-                        "UPDATE upload_tasks SET status='failed', attempts=?, error=?, "
-                        "updated_at=datetime('now') WHERE item_id=? AND provider_id=?",
-                        (attempt, err, item_id, provider_id))
-                if attempt < max_attempts:
-                    wait = compute_retry_delay(attempt)
-                    logger.info("Retrying %s in %.0fs (attempt %d/%d)",
-                                item["filename"], wait, attempt + 1, max_attempts)
-                    time.sleep(wait)
-        logger.error("Gave up on %s (provider %s)", item["filename"], provider_name)
+                inst.upload(item["path"], remote, progress,
+                            resume_state=state_holder["state"])
+            except S3MultipartError as e:
+                # Partial progress: remember it for the next attempt.
+                state_holder["state"] = e.state or state_holder["state"]
+                raise
+
+        def _persist_failed(retry_state):
+            err = str(retry_state.outcome.exception())[:500]
+            logger.warning(
+                "Upload failed for %s (provider %s), attempt %d/%d: %s",
+                item["filename"], provider_name, attempts["n"], max_attempts, err)
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE upload_tasks SET status='failed', attempts=?, error=?, state=?, "
+                    "updated_at=datetime('now') WHERE item_id=? AND provider_id=?",
+                    (attempts["n"], err, _dump_state(state_holder["state"]),
+                     item_id, provider_id))
+
+        # tenacity: exponential backoff (identical formula to compute_retry_delay)
+        # plus jitter, capped, with the failure state persisted before each sleep.
+        retrier = Retrying(
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_exponential(multiplier=config.RETRY_BACKOFF,
+                                  max=config.RETRY_BACKOFF_CAP)
+                 + wait_random(0, config.RETRY_JITTER),
+            retry=retry_if_exception_type(Exception),
+            before_sleep=_persist_failed,
+            reraise=True,
+        )
+
+        try:
+            retrier(_attempt_upload)
+        except Exception as e:
+            err = str(e)[:500]
+            logger.error("Gave up on %s (provider %s): %s",
+                         item["filename"], provider_name, err)
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE upload_tasks SET status='failed', attempts=?, error=?, state=?, "
+                    "updated_at=datetime('now') WHERE item_id=? AND provider_id=?",
+                    (attempts["n"], err, _dump_state(state_holder["state"]),
+                     item_id, provider_id))
+            return
+
+        # Success: the provider confirmed the upload; resume state is cleared.
+        with connect() as conn:
+            conn.execute(
+                "UPDATE upload_tasks SET status='completed', progress=100, error=NULL, "
+                "attempts=?, state=NULL, updated_at=datetime('now') "
+                "WHERE item_id=? AND provider_id=?",
+                (attempts["n"], item_id, provider_id))
+        logger.info("Uploaded %s -> %s (provider %s)",
+                    item["filename"], remote, provider_name)
 
     def _delete_local(self, item):
         """Delete the source file after a successful upload to save disk space.

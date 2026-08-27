@@ -321,6 +321,19 @@ def manual_scan(request: Request):
     return {"ok": True, "started": True}
 
 
+def _memory_rss_kb():
+    """Resident memory of this process, read from /proc (Linux, no deps).
+    Lets the watchdog spot a memory leak on 24/7 runs."""
+    try:
+        with open("/proc/self/status", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1])
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/api/health")
 def health():
     """Liveness endpoint for the background daemon / umbrelOS healthchecks."""
@@ -352,6 +365,7 @@ def system_status(request: Request):
     return {
         "ok": True,
         "db": {"size_bytes": db_size},
+        "process": {"memory_rss_kb": _memory_rss_kb()},
         "queue": {"counts": counts},
         "providers": {"total": providers, "enabled": enabled_providers},
         "watcher": {

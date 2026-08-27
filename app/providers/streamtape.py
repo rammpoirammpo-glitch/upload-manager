@@ -1,9 +1,7 @@
 import hashlib
 import os
 
-import requests
-
-from ._util import HEADERS, multipart_monitor, request_timeout
+from ._util import multipart_monitor, new_session, request_timeout
 from .base import BaseProvider
 
 API_BASE = "https://api.streamtape.com"
@@ -19,6 +17,15 @@ class StreamTapeProvider(BaseProvider):
          "help": "API-Key / API-Password from Account Settings"},
         {"name": "folder", "label": "Folder ID (optional)", "type": "text"},
     ]
+
+    def __init__(self, config):
+        super().__init__(config)
+        self._session = None
+
+    def _session(self):
+        if self._session is None:
+            self._session = new_session()
+        return self._session
 
     def _sha256(self, path):
         h = hashlib.sha256()
@@ -36,8 +43,8 @@ class StreamTapeProvider(BaseProvider):
         fld = (self.config.get("folder") or "").strip()
         if fld:
             params["folder"] = fld
-        r = requests.get(API_BASE + "/file/ul", params=params,
-                         timeout=request_timeout(), headers=HEADERS)
+        r = self._session().get(API_BASE + "/file/ul", params=params,
+                                timeout=request_timeout())
         r.raise_for_status()
         data = r.json()
         if int(data.get("status", 0)) != 200:
@@ -53,9 +60,9 @@ class StreamTapeProvider(BaseProvider):
         if not login or not key:
             return False, "API Login and API Key are required"
         try:
-            r = requests.get(API_BASE + "/account/info",
-                             params={"login": login, "key": key},
-                             timeout=request_timeout(), headers=HEADERS)
+            r = self._session().get(API_BASE + "/account/info",
+                                    params={"login": login, "key": key},
+                                    timeout=request_timeout())
             r.raise_for_status()
             data = r.json()
             if int(data.get("status", 0)) != 200:
@@ -66,7 +73,7 @@ class StreamTapeProvider(BaseProvider):
         except Exception as e:
             return False, str(e)
 
-    def upload(self, local_path, remote_path, progress_cb):
+    def upload(self, local_path, remote_path, progress_cb, resume_state=None):
         total = os.path.getsize(local_path)
         if total <= 0:
             raise RuntimeError("File is empty")
@@ -77,9 +84,9 @@ class StreamTapeProvider(BaseProvider):
             monitor = multipart_monitor({
                 "file1": (os.path.basename(local_path), fh, "application/octet-stream"),
             }, progress_cb)
-            r = requests.post(
+            r = self._session().post(
                 upload_url, data=monitor,
-                headers={"Content-Type": monitor.content_type, **HEADERS},
+                headers={"Content-Type": monitor.content_type},
                 timeout=request_timeout(),
             )
         finally:

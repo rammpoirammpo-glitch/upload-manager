@@ -1,5 +1,6 @@
 import base64
 import logging
+import logging.handlers
 import os
 import secrets
 from contextlib import asynccontextmanager
@@ -18,7 +19,11 @@ def setup_logging():
     os.makedirs(config.DATA_DIR, exist_ok=True)
     handlers = [logging.StreamHandler()]
     try:
-        handlers.append(logging.FileHandler(config.LOG_PATH, encoding="utf-8"))
+        # Rotating file handler: the log can never grow without bound on a
+        # 24/7 install (disk-space guard).
+        handlers.append(logging.handlers.RotatingFileHandler(
+            config.LOG_PATH, maxBytes=config.LOG_MAX_BYTES,
+            backupCount=config.LOG_BACKUPS, encoding="utf-8"))
     except Exception:
         pass
     logging.basicConfig(
@@ -68,7 +73,7 @@ async def lifespan(app: FastAPI):
     notifier.shutdown()
 
 
-app = FastAPI(title="Upload Manager", version="1.4.0", lifespan=lifespan)
+app = FastAPI(title="Upload Manager", version="1.5.0", lifespan=lifespan)
 app.include_router(router)
 
 

@@ -15,6 +15,8 @@ import tempfile
 import time
 import unittest
 
+import boto3
+
 _TMP = tempfile.mkdtemp(prefix="uploadmgr-test-")
 os.environ["DATA_DIR"] = os.path.join(_TMP, "data")
 os.environ["DELETE_AFTER_UPLOAD"] = "true"
@@ -597,6 +599,249 @@ class ApiRoutingTests(unittest.TestCase):
             # present (the app may append its own startup log lines after).
             self.assertEqual(len(lines), 5)
             self.assertTrue(any(line.startswith("line 199") for line in lines))
+
+
+# --------------------------------------------------------------------------
+# High-speed upload: S3 parallel multipart with server-side resume, and
+# tenacity retry integration (attempts persisted to the DB).
+# --------------------------------------------------------------------------
+
+class S3MultipartTests(unittest.TestCase):
+    """Parallel multipart upload + byte-level resume against in-memory moto."""
+
+    @classmethod
+    def setUpClass(cls):
+        import app.providers.s3 as s3mod
+
+        cls._s3mod = s3mod
+        cls._old_chunk = config.S3_CHUNK_SIZE_MB
+        # 5MB chunks (S3 real minimum for non-last parts) -> 3 parts for 12MB
+        config.S3_CHUNK_SIZE_MB = 5
+
+    @classmethod
+    def tearDownClass(cls):
+        config.S3_CHUNK_SIZE_MB = cls._old_chunk
+
+    def setUp(self):
+        try:
+            from moto import mock_aws
+        except ImportError:
+            self.skipTest("moto not installed (dev dependency)")
+        self._mock = mock_aws()
+        self._mock.start()
+        self.addCleanup(self._mock.stop)
+        self.client = boto3.client("s3", region_name="us-east-1")
+        self.client.create_bucket(Bucket="testbucket")
+        self.tmp = tempfile.mkdtemp(prefix="s3test-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _provider(self):
+        # No endpoint_url: moto's mock_aws only intercepts clients that use
+        # the default S3 endpoint resolution.
+        return self._s3mod.S3Provider({
+            "access_key": "a", "secret_key": "s",
+            "bucket": "testbucket",
+        })
+
+    def _file(self, size):
+        p = os.path.join(self.tmp, "movie.mkv")
+        with open(p, "wb") as f:
+            f.write(os.urandom(size))
+        return p
+
+    def test_plan_parts(self):
+        from app.providers.s3 import plan_parts
+
+        self.assertEqual(plan_parts(10_000_000, 5_000_000),
+                         [(1, 0, 5_000_000), (2, 5_000_000, 5_000_000)])
+        plan = plan_parts(12_000_000, 5_000_000)
+        self.assertEqual(len(plan), 3)
+        self.assertEqual(plan[-1], (3, 10_000_000, 2_000_000))
+        self.assertEqual(plan_parts(0, 5_000_000), [])
+        self.assertEqual(plan_parts(100, 5_000_000), [(1, 0, 100)])
+
+    def test_full_multipart_upload(self):
+        src = self._file(12 * 1024 * 1024)  # 12MB -> 3 parts (5+5+2)
+        prog = []
+        prov = self._provider()
+        result = prov.upload(src, "movies/movie.mkv", prog.append)
+        self.assertIsNone(result)
+        self.assertEqual(prog[-1], 1.0)
+        obj = self.client.head_object(Bucket="testbucket", Key="movies/movie.mkv")
+        self.assertEqual(obj["ContentLength"], 12 * 1024 * 1024)
+
+    def test_resume_after_part_failure(self):
+        src = self._file(12 * 1024 * 1024)
+        s3mod = self._s3mod
+        real_client = s3mod.S3Provider._client
+        calls = {"n": 0}
+
+        def flaky_client(self):
+            c = real_client(self)
+            orig_upload_part = c.upload_part
+
+            def upload_part(**kw):
+                calls["n"] += 1
+                if calls["n"] == 3:
+                    raise ConnectionError("simulated part failure")
+                return orig_upload_part(**kw)
+
+            c.upload_part = upload_part
+            return c
+
+        s3mod.S3Provider._client = flaky_client
+        self.addCleanup(lambda: setattr(s3mod.S3Provider, "_client", real_client))
+
+        prov = self._provider()
+        # Attempt 1: the 3rd upload_part call fails -> partial state captured.
+        # Part execution order is nondeterministic across the parallel workers
+        # (0..2 parts may have landed in-memory; the executor shutdown flushes
+        # any in-flight ones to the server).
+        with self.assertRaises(s3mod.S3MultipartError) as ctx:
+            prov.upload(src, "movies/movie.mkv", lambda f: None)
+        state = ctx.exception.state
+        self.assertIn("upload_id", state)
+        self.assertLessEqual(len(state.get("parts", {})), 2)
+
+        # Attempt 2 (retry): resumes from the server-side part list (list_parts)
+        # and only uploads the missing part(s), then completes.
+        result = prov.upload(src, "movies/movie.mkv", lambda f: None,
+                             resume_state=state)
+        self.assertIsNone(result)
+        obj = self.client.head_object(Bucket="testbucket", Key="movies/movie.mkv")
+        self.assertEqual(obj["ContentLength"], 12 * 1024 * 1024)
+        # Attempt 1 called upload_part 3 times; attempt 2 only once for the
+        # missing part -> 4 calls, never a full re-upload.
+        self.assertEqual(calls["n"], 4)
+
+
+class TenacityRetryTests(unittest.TestCase):
+    """The queue retries via tenacity and persists attempts / resume state."""
+
+    @classmethod
+    def setUpClass(cls):
+        init_db()
+        cls.watch = tempfile.mkdtemp(prefix="retry-watch-")
+        cls.target = tempfile.mkdtemp(prefix="retry-target-")
+        with connect() as conn:
+            conn.execute("DELETE FROM queue_items")
+            conn.execute("DELETE FROM upload_tasks")
+            conn.execute("DELETE FROM providers")
+            conn.execute("DELETE FROM watch_paths")
+            conn.execute(
+                "INSERT INTO providers(name,type,config,enabled) VALUES(?,?,?,?)",
+                ("retry-local", "local", json.dumps({"target_dir": cls.target}), 1))
+            conn.execute(
+                "INSERT INTO watch_paths(path, enabled, remote_dir, provider_ids) "
+                "VALUES(?,?,?,?)", (cls.watch, 1, "", ""))
+        cls.watcher = Watcher(notifier=None)
+        cls.scheduler = QueueScheduler(notifier=None, concurrency=2)
+        # Zero-duration backoff so the retry test runs instantly.
+        cls._old = (config.RETRY_BACKOFF, config.RETRY_BACKOFF_CAP, config.RETRY_JITTER)
+        config.RETRY_BACKOFF = 0
+        config.RETRY_BACKOFF_CAP = 1
+        config.RETRY_JITTER = 0
+
+    @classmethod
+    def tearDownClass(cls):
+        config.RETRY_BACKOFF, config.RETRY_BACKOFF_CAP, config.RETRY_JITTER = cls._old
+
+    def _process_new_file(self, name):
+        src = os.path.join(self.watch, name)
+        with open(src, "wb") as f:
+            f.write(b"x" * 1024)
+        os.utime(src, (1, 1))
+        self.watcher.scan_once()
+        with connect() as conn:
+            return conn.execute(
+                "SELECT * FROM queue_items WHERE path=?", (src,)).fetchone()
+
+    def test_retries_then_succeeds_and_persists_attempts(self):
+        from app.providers.local import LocalProvider
+
+        original = LocalProvider.upload
+        calls = {"n": 0}
+
+        def flaky(self, local_path, remote_path, progress_cb, resume_state=None):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise RuntimeError("transient provider boom")
+            return original(self, local_path, remote_path, progress_cb, resume_state)
+
+        LocalProvider.upload = flaky
+        try:
+            item = self._process_new_file("flaky.mkv")
+            self.scheduler._process_item(item["id"])
+        finally:
+            LocalProvider.upload = original
+
+        with connect() as conn:
+            task = conn.execute(
+                "SELECT * FROM upload_tasks WHERE item_id=?", (item["id"],)).fetchone()
+            status = conn.execute(
+                "SELECT status FROM queue_items WHERE id=?", (item["id"],)).fetchone()
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(task["attempts"], 3)
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(status["status"], "completed")
+
+    def test_gives_up_after_max_attempts(self):
+        from app.providers.local import LocalProvider
+
+        original = LocalProvider.upload
+
+        def always_fail(self, local_path, remote_path, progress_cb, resume_state=None):
+            raise RuntimeError("permanent failure")
+
+        LocalProvider.upload = always_fail
+        try:
+            item = self._process_new_file("doomed.mkv")
+            self.scheduler._process_item(item["id"])
+        finally:
+            LocalProvider.upload = original
+
+        with connect() as conn:
+            task = conn.execute(
+                "SELECT * FROM upload_tasks WHERE item_id=?", (item["id"],)).fetchone()
+            status = conn.execute(
+                "SELECT status FROM queue_items WHERE id=?", (item["id"],)).fetchone()
+        self.assertEqual(task["attempts"], config.RETRY_MAX)
+        self.assertEqual(task["status"], "failed")
+        self.assertIn("permanent failure", task["error"])
+        self.assertEqual(status["status"], "failed")
+        # The local file must NOT be deleted after a failed upload.
+        self.assertTrue(os.path.exists(os.path.join(self.watch, "doomed.mkv")))
+
+    def test_task_state_persisted_and_loaded(self):
+        from app.queue import _dump_state, _load_task_state
+
+        with connect() as conn:
+            conn.execute("INSERT INTO queue_items(path, filename, status) "
+                         "VALUES(?,?,?)", ("/state/x.mkv", "x.mkv", "pending"))
+            iid = conn.execute(
+                "SELECT id FROM queue_items WHERE path='/state/x.mkv'").fetchone()["id"]
+            conn.execute(
+                "INSERT INTO upload_tasks(item_id, provider_id, status, state) "
+                "VALUES(?,?,?,?)", (iid, 42, "failed",
+                                    _dump_state({"upload_id": "abc123", "parts": {1: "e"}})))
+        state = _load_task_state(iid, 42)
+        # JSON keys are strings after the round-trip
+        self.assertEqual(state, {"upload_id": "abc123", "parts": {"1": "e"}})
+        self.assertIsNone(_load_task_state(iid, 43))
+        with connect() as conn:
+            conn.execute("DELETE FROM queue_items WHERE id=?", (iid,))
+
+    def test_new_session_pooling(self):
+        import requests
+
+        from app.providers._util import new_session
+
+        s = new_session()
+        adapter = s.get_adapter("https://example.com")
+        self.assertIsInstance(s, requests.Session)
+        self.assertEqual(adapter._pool_maxsize, config.HTTP_POOL_MAXSIZE)
+        self.assertEqual(adapter._pool_connections, config.HTTP_POOL_CONNECTIONS)
+        self.assertEqual(adapter.max_retries.total, 0)  # queue owns retries
 
 
 if __name__ == "__main__":

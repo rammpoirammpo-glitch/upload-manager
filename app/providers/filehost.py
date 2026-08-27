@@ -1,8 +1,6 @@
 import os
 
-import requests
-
-from ._util import HEADERS, multipart_monitor, request_timeout
+from ._util import multipart_monitor, new_session, request_timeout
 from .base import BaseProvider
 
 
@@ -32,6 +30,19 @@ class FileHostProvider(BaseProvider):
         "LuluStream": "https://api.lulustream.com",
     }
 
+    def __init__(self, config):
+        super().__init__(config)
+        self._session = None
+        self._upload_url_cache = None
+
+    def _session(self):
+        # One keep-alive session per provider instance, reused across the
+        # upload-server fetch, the upload POST and any retries (connection
+        # pooling => no repeated TLS handshakes on 1Gbps+ uplinks).
+        if self._session is None:
+            self._session = new_session()
+        return self._session
+
     def _api(self):
         return self.config.get("api_host", "").rstrip("/")
 
@@ -53,8 +64,8 @@ class FileHostProvider(BaseProvider):
     def _call(self, path, params):
         if not self._api():
             raise RuntimeError("API host is not configured")
-        r = requests.get(self._api() + path, params=params,
-                         timeout=request_timeout(), headers=HEADERS)
+        r = self._session().get(self._api() + path, params=params,
+                                timeout=request_timeout())
         r.raise_for_status()
         try:
             data = r.json()
@@ -99,6 +110,8 @@ class FileHostProvider(BaseProvider):
         url = (self.config.get("upload_url") or "").strip()
         if url:
             return url.rstrip("/")
+        if self._upload_url_cache:
+            return self._upload_url_cache
 
         def _extract(data):
             result = data.get("result")
@@ -114,6 +127,7 @@ class FileHostProvider(BaseProvider):
             try:
                 u = _extract(self._call(path, {"key": self._key()}))
                 if u:
+                    self._upload_url_cache = u
                     return u
             except Exception:
                 continue
@@ -132,7 +146,7 @@ class FileHostProvider(BaseProvider):
             except Exception:
                 return False, str(e)
 
-    def upload(self, local_path, remote_path, progress_cb):
+    def upload(self, local_path, remote_path, progress_cb, resume_state=None):
         total = os.path.getsize(local_path)
         if total <= 0:
             raise RuntimeError("File is empty")
@@ -159,9 +173,9 @@ class FileHostProvider(BaseProvider):
                 fields.append(("tags", tags))
 
             monitor = multipart_monitor(fields, progress_cb)
-            r = requests.post(
+            r = self._session().post(
                 upload_url, data=monitor,
-                headers={"Content-Type": monitor.content_type, **HEADERS},
+                headers={"Content-Type": monitor.content_type},
                 timeout=request_timeout(),
             )
         finally:
