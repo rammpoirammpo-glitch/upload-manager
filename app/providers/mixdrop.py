@@ -20,12 +20,14 @@ class MixdropProvider(BaseProvider):
 
     def __init__(self, config):
         super().__init__(config)
-        self._session = None
+        self._sess = None
 
     def _session(self):
-        if self._session is None:
-            self._session = new_session()
-        return self._session
+        # The backing attribute must differ from the method name, otherwise
+        # ``self._session = None`` would shadow this bound method below.
+        if self._sess is None:
+            self._sess = new_session()
+        return self._sess
 
     def _upload_url(self):
         return (self.config.get("upload_url") or DEFAULT_UPLOAD_URL).rstrip("/")

@@ -1174,5 +1174,36 @@ class SecurityStressTests(unittest.TestCase):
         self.assertEqual(len(os.listdir(os.path.join(self.target_b, cf_b))), 75)
 
 
+class ProviderSessionTests(unittest.TestCase):
+    """The HTTP providers' ``_session()`` getter must return a live, reusable
+    ``requests.Session``. This guards the shadowing bug where ``self._session = None``
+    in ``__init__`` shadowed the ``_session()`` method, so every ``self._session()``
+    call crashed with ``TypeError: 'NoneType' object is not callable`` and the
+    Dashboard's Test button reported the cloud as unreachable."""
+
+    def test_http_providers_return_callable_session(self):
+        import requests
+
+        from app.providers.filehost import FileHostProvider
+        from app.providers.mixdrop import MixdropProvider
+        from app.providers.streamtape import StreamTapeProvider
+
+        for cls in (FileHostProvider, MixdropProvider, StreamTapeProvider):
+            with self.subTest(cls=cls.__name__):
+                prov = cls({})
+                s = prov._session()
+                self.assertIsInstance(s, requests.Session)
+                # Cached: a second call returns the SAME object (pooling).
+                self.assertIs(s, prov._session())
+
+    def test_s3_provider_has_no_shadowing(self):
+        from app.providers.s3 import S3Provider
+
+        # S3 never stores a ``self._session`` attribute, so nothing can shadow
+        # a method; sanity-check the client getter is bound and callable.
+        prov = S3Provider({"access_key": "a", "secret_key": "s", "bucket": "b"})
+        self.assertEqual(prov._client.__name__, "_client")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

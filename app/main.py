@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
     notifier.shutdown()
 
 
-app = FastAPI(title="Upload Manager", version="1.5.1", lifespan=lifespan)
+app = FastAPI(title="Upload Manager", version="1.5.2", lifespan=lifespan)
 app.include_router(router)
 
 

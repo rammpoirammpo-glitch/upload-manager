@@ -32,16 +32,21 @@ class FileHostProvider(BaseProvider):
 
     def __init__(self, config):
         super().__init__(config)
-        self._session = None
+        self._sess = None  # lazy keep-alive session; see _session()
         self._upload_url_cache = None
 
     def _session(self):
         # One keep-alive session per provider instance, reused across the
         # upload-server fetch, the upload POST and any retries (connection
         # pooling => no repeated TLS handshakes on 1Gbps+ uplinks).
-        if self._session is None:
-            self._session = new_session()
-        return self._session
+        #
+        # NOTE: the backing attribute must have a DIFFERENT name than this
+        # method. If it were ``self._session``, the instance attribute would
+        # shadow the bound method and every ``self._session()`` call would
+        # fail with ``TypeError: 'NoneType' object is not callable``.
+        if self._sess is None:
+            self._sess = new_session()
+        return self._sess
 
     def _api(self):
         return self.config.get("api_host", "").rstrip("/")

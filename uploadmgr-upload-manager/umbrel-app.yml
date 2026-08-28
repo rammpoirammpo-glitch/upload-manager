@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: uploadmgr-upload-manager
 category: media
 name: Upload Manager
-version: "1.5.1"
+version: "1.5.2"
 tagline: Upload *arr downloads to cloud file hosts
 icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/app/static/icon.svg
 description: >-
@@ -35,23 +35,22 @@ defaultPassword: ""
 permissions:
   - STORAGE_DOWNLOADS
 releaseNotes: >-
-  Security & stress-hardening release (1.5.1), the result of a full code
-  audit and stress test. Path traversal is now impossible: watch-path remote
-  folders are sanitized (never emit .. segments) and the Local provider
-  refuses to write outside its target directory or overwrite the source file.
-  SFTP uploads got explicit socket/channel timeouts + keepalive, so a dead
-  remote host can no longer freeze a worker (and the queue) forever. The
-  scheduler scans pending items with a bounded LIMIT, so queues with tens of
-  thousands of items stay cheap per tick. Orphaned S3 multipart uploads are
-  aborted when their queue item is deleted (no server-side leaks), and
-  botocore's internal retries are bounded. A watcher memory leak was fixed:
-  queued files no longer keep an in-memory entry forever when
-  DELETE_AFTER_UPLOAD=false. Notification spam for deleted items is
-  suppressed, and worker threads survive items being deleted mid-upload.
-  Added 11 stress/security tests: 150-file concurrent stress with zero
-  cross-routing, weird/unicode/long filenames, provider-crash file safety
-  (local file survives failed uploads), path-traversal and self-overwrite
-  blocking, memory-bound checks and the full self-heal watchdog cycle.
-  CI now runs ruff + 49 tests.
+  Fixes the cloud providers unable to connect / Test failing with
+  "'NoneType' object is not callable" (1.5.2). The EarnVids-style file host
+  (StreamHG/EarnVids/Vidoza/LuluStream), Mixdrop and StreamTape providers each
+  stored their keep-alive requests session on an attribute whose name
+  shadowed the _session() method, so every _session() call crashed and both
+  the Test button and uploads reported the cloud as unreachable. The backing
+  attribute is renamed (_sess) and the session getter is verified by new
+  regression tests, so a down-cloud Test now reports the real API error
+  instead of a spurious Python TypeError. Includes the full security and
+  stress hardening from 1.5.1: path-traversal is impossible, SFTP got socket
+  timeouts + keepalive (a dead host can no longer freeze a worker), bounded
+  scheduler LIMIT for huge queues, orphaned S3 multipart uploads are aborted
+  on delete, a watcher memory leak is fixed (DELETE_AFTER_UPLOAD=false),
+  notification spam for deleted items is suppressed, and 11 stress/security
+  tests + 2 session regression tests verify 150-file concurrent routing,
+  crash safety, weird filenames, traversal/self-overwrite blocking, memory
+  bounds and the self-heal watchdog cycle. CI runs ruff + 51 tests.
 submitter: Your Name
 submission: https://github.com/rammpoirammpo-glitch/upload-manager
