@@ -1,0 +1,48 @@
+manifestVersion: 1.1
+id: uploadmgr-reaparr
+category: media
+name: Reaparr
+version: "0.39.0"
+tagline: Plex media downloader for Sonarr & Radarr
+icon: https://cdn.jsdelivr.net/gh/rammpoirammpo-glitch/upload-manager@main/uploadmgr-reaparr/icon.svg
+description: >-
+  Reaparr is a Plex media downloader. It registers itself inside Sonarr and
+  Radarr as a Torznab-compatible indexer and a qBittorrent download client, so
+  you can search from within Sonarr/Radarr and Reaparr downloads the media from
+  other Plex servers you have access to.
+
+
+  ## Setup
+
+  1. Install this app and open its dashboard (the Reaparr web UI).
+  2. On first run, log in with your **Plex account** — there are no default
+     username/password credentials.
+  3. If you want Reaparr to serve Sonarr/Radarr: open
+     **Settings -> Integrations**, add your Sonarr and Radarr URLs plus their
+     API keys, and Reaparr configures itself inside them with a single click.
+
+
+  ## Notes
+
+  - Requires a Plex account with access to at least one Plex server.
+  - This app is fully separate from the other apps in this store.
+developer: Upload Manager
+website: https://www.reaparr.rocks
+repo: https://github.com/Reaparr/Reaparr
+support: https://github.com/Reaparr/Reaparr/issues
+port: 7000
+gallery:
+  - https://cdn.jsdelivr.net/gh/rammpoirammpo-glitch/upload-manager@main/uploadmgr-reaparr/icon.svg
+path: ""
+dependencies: []
+defaultUsername: ""
+defaultPassword: ""
+permissions: []
+releaseNotes: >-
+  Adds Reaparr 0.39.0 to this store, running the official reaparr/reaparr image
+  (pinned to its multi-arch manifest digest) behind the umbrelOS app proxy on
+  port 7000. Data lives under this app's directory (Config, Downloads, Movies,
+  TvShows) and runs as PUID/PGID 1000. First-run logs in with a Plex account
+  (no default credentials); Sonarr/Radarr connect via Settings -> Integrations.
+submitter: Your Name
+submission: https://github.com/rammpoirammpo-glitch/upload-manager

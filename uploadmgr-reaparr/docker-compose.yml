@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  app_proxy:
+    environment:
+      # Format: <app-id>_<docker-service-name>_1
+      APP_HOST: uploadmgr-reaparr_server_1
+      APP_PORT: 7000
+
+  server:
+    # Official Reaparr image from Docker Hub (reaparr/reaparr), multi-arch
+    # (amd64 + arm64) pinned to the v0.39.0 manifest-list digest for stability.
+    image: reaparr/reaparr:0.39.0@sha256:2dca8f67055e351d5ee0686a8abd4ea72c66a0068559b288bc0bcad72cc927bc
+    restart: on-failure
+    environment:
+      # Run as an unprivileged user; PUID:PGID must match the app data owner.
+      - PUID=1000
+      - PGID=1000
+      # Unix timezone (adjust to your region).
+      - TZ=UTC
+      # Keep sensitive data (API keys/tokens) masked in logs.
+      - UNMASKED=false
+      # Optional: DEBUG / INFO / WARNING / ERROR
+      - LOG_LEVEL=INFO
+    volumes:
+      # Persistent configuration, logs and database (survives restarts/updates).
+      - ${APP_DATA_DIR}/data/Config:/Config
+      # Temporary download staging.
+      - ${APP_DATA_DIR}/data/Downloads:/Downloads
+      # Default destination folders for movies and TV shows.
+      - ${APP_DATA_DIR}/data/Movies:/Movies
+      - ${APP_DATA_DIR}/data/TvShows:/TvShows
