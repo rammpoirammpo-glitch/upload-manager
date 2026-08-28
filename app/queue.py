@@ -151,6 +151,12 @@ class QueueScheduler(threading.Thread):
         self.paused = False
         self.running = True
         self._active = set()
+        # item_id -> monotonic timestamp of the last time that item's worker
+        # reported progress. Used by the watchdog to distinguish a genuinely
+        # running (heartbeating) worker from one that is stuck forever inside a
+        # provider call that ignored its timeout. Without this, a wedged worker
+        # would hold its concurrency slot forever on a 24/7 run.
+        self._heartbeat = {}
         self._lock = threading.Lock()
         self.notifier = notifier
         # Cap of parallel upload workers per item, so an item routed to many
@@ -159,6 +165,11 @@ class QueueScheduler(threading.Thread):
         self.last_step_at = None
         self.started_total = 0
         self._last_prune = 0.0
+
+    def _beat(self, item_id):
+        """Mark an item's worker as alive right now (progress heartbeat)."""
+        with self._lock:
+            self._heartbeat[item_id] = time.monotonic()
 
     def run(self):
         logger.info("Queue scheduler started (concurrency=%d)", self.concurrency)
@@ -192,24 +203,54 @@ class QueueScheduler(threading.Thread):
                         cur.rowcount, days)
 
     def _recover_stale_uploading(self):
-        """Watchdog: reset items stuck in 'uploading' whose worker thread is
-        gone (e.g. the thread was killed without the finally block running).
-        Without this, a single crash would consume a concurrency slot and
-        stall the whole queue until restart."""
+        """Watchdog: reset items stuck in 'uploading' whose worker is no longer
+        making progress, so a wedged provider can never hold a concurrency slot
+        forever on a 24/7 run.
+
+        Two cases are reclaimed:
+        1. The worker thread is gone entirely (crash without finally running).
+        2. The worker thread is alive in ``_active`` but produced NO heartbeat
+           for ``WORKER_STALL_SECONDS``: it is stuck inside a provider call
+           that ignored its networking timeout (e.g. a botocore call without
+           explicit socket deadlines).
+
+        Reclaiming simply resets the row to 'pending' and clears it from
+        ``_active``/heartbeats. The orphaned thread, if it ever returns, will
+        find the item back at 'pending' and stop (see _process_item's
+        status-guard), and the item is picked up by a fresh worker."""
+        now = time.monotonic()
         with self._lock:
             active = set(self._active)
+            stale_active = [
+                iid for iid in active
+                if (now - self._heartbeat.get(iid, 0)) > config.WORKER_STALL_SECONDS
+            ]
+            # Give genuinely-starting workers a beat budget; a fresh item with
+            # no heartbeat yet is not considered stalled.
+            stale_active = [iid for iid in stale_active
+                            if self._heartbeat.get(iid, 0) > 0]
+            for iid in stale_active:
+                self._active.discard(iid)
+                self._heartbeat.pop(iid, None)
+        if stale_active:
+            logger.warning(
+                "Watchdog: reclaiming %d stuck worker(s) (no progress for >%ds); "
+                "resetting to pending", len(stale_active),
+                config.WORKER_STALL_SECONDS)
         with connect() as conn:
             rows = conn.execute(
                 "SELECT id FROM queue_items WHERE status='uploading'").fetchall()
+        to_pend = set(stale_active)
         for r in rows:
-            if r["id"] not in active:
-                logger.warning(
-                    "Recovering stale 'uploading' item %s (worker thread gone); "
-                    "resetting to pending", r["id"])
-                with connect() as conn:
-                    conn.execute(
-                        "UPDATE queue_items SET status='pending', updated_at=datetime('now') "
-                        "WHERE id=?", (r["id"],))
+            if r["id"] not in active and r["id"] not in to_pend:
+                # Thread gone entirely: earlier behavior.
+                to_pend.add(r["id"])
+        for iid in to_pend:
+            logger.warning("Recovering stale 'uploading' item %s; resetting to pending", iid)
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE queue_items SET status='pending', updated_at=datetime('now') "
+                    "WHERE id=?", (iid,))
 
     def _step(self):
         self.last_step_at = time.time()
@@ -267,6 +308,7 @@ class QueueScheduler(threading.Thread):
         item_id = row["id"]
         with self._lock:
             self._active.add(item_id)
+            self._heartbeat[item_id] = time.monotonic()
         with connect() as conn:
             conn.execute(
                 "UPDATE queue_items SET status='uploading', updated_at=datetime('now'), "
@@ -314,15 +356,38 @@ class QueueScheduler(threading.Thread):
             # Upload to the selected providers in parallel, but never spawn
             # more than a sane number of threads per item.
             workers = min(len(providers), self.max_providers_per_item)
-            with ThreadPoolExecutor(max_workers=workers,
-                                    thread_name_prefix="upload") as ex:
+            ex = ThreadPoolExecutor(max_workers=workers,
+                                    thread_name_prefix="upload")
+            timed_out = False
+            try:
                 futures = [ex.submit(self._upload_to_provider, item_id, p, remote)
                            for p in providers]
-                for f in as_completed(futures):
-                    try:
-                        f.result()
-                    except Exception:
-                        logger.exception("provider worker crashed")
+                # Join workers with a hard timeout so a single provider call
+                # that ignored its networking timeout (e.g. a wedged botocore
+                # call) can never hold this item's concurrency slot forever on
+                # a 24/7 run. On the timeout path we stop waiting so the
+                # scheduler thread is never blocked; the item is marked failed /
+                # re-pended below and the slot is freed, and the watchdog also
+                # reclaims any worker still tangled in the provider via its
+                # stale heartbeat.
+                try:
+                    for f in as_completed(futures, timeout=config.WORKER_JOIN_TIMEOUT):
+                        try:
+                            f.result()
+                        except Exception:
+                            logger.exception("provider worker crashed")
+                except TimeoutError:
+                    timed_out = True
+                    logger.error(
+                        "Item %s: worker batch exceeded %ds join timeout; "
+                        "freeing its slot", item_id, config.WORKER_JOIN_TIMEOUT)
+            finally:
+                # Normal path: wait for the workers that finished (fast). On the
+                # timeout path we must NOT block the scheduler thread on a
+                # wedged worker, so we shut down without waiting; any in-flight
+                # worker keeps running in the background and stops harmlessly
+                # (status-guard in _upload_to_provider) if it later wakes up.
+                ex.shutdown(wait=not timed_out, cancel_futures=timed_out)
 
             with connect() as conn:
                 tasks = conn.execute(
@@ -373,6 +438,7 @@ class QueueScheduler(threading.Thread):
         finally:
             with self._lock:
                 self._active.discard(item_id)
+                self._heartbeat.pop(item_id, None)
 
     def _upload_to_provider(self, item_id, prov, remote):
         provider_id = prov["id"]
@@ -426,6 +492,10 @@ class QueueScheduler(threading.Thread):
         throttler = ProgressThrottler(interval=2.0, min_delta=1.0)
 
         def progress(fraction):
+            # Progress heartbeat: tells the watchdog this worker is alive, so a
+            # genuinely long upload is never reclaimed as "stuck" (stale pieces
+            # only trigger when NO progress has been made for a long time).
+            self._beat(item_id)
             pct = round(min(1.0, max(0.0, fraction)) * 100, 1)
             if not throttler.should_write(pct):
                 return
@@ -446,6 +516,10 @@ class QueueScheduler(threading.Thread):
 
         def _attempt_upload():
             attempts["n"] += 1
+            # Heartbeat before starting each attempt (covers slow-to-connect
+            # providers and anything that doesn't drive the progress callback)
+            # so the watchdog never mistakes a working retry cycle for a stall.
+            self._beat(item_id)
             try:
                 inst.upload(item["path"], remote, progress,
                             resume_state=state_holder["state"])
@@ -484,6 +558,14 @@ class QueueScheduler(threading.Thread):
             err = str(e)[:500]
             logger.error("Gave up on %s (provider %s): %s",
                          item["filename"], provider_name, err)
+            # Guard: if the item was deleted while we were retrying, stop quietly
+            # (nothing left to mark failed, and no notification for a removed
+            # item — the user deliberately dropped it).
+            with connect() as conn:
+                owner = conn.execute(
+                    "SELECT id FROM queue_items WHERE id=?", (item_id,)).fetchone()
+            if owner is None:
+                return
             with connect() as conn:
                 conn.execute(
                     "UPDATE upload_tasks SET status='failed', attempts=?, error=?, state=?, "
@@ -493,6 +575,14 @@ class QueueScheduler(threading.Thread):
             return
 
         # Success: the provider confirmed the upload; resume state is cleared.
+        # Guard: if the item was deleted by the user while we were uploading
+        # (its queue row + tasks are gone), there is nothing to mark complete,
+        # so stop quietly instead of writing into a void or notifying.
+        with connect() as conn:
+            owner = conn.execute(
+                "SELECT id FROM queue_items WHERE id=?", (item_id,)).fetchone()
+        if owner is None:
+            return
         with connect() as conn:
             conn.execute(
                 "UPDATE upload_tasks SET status='completed', progress=100, error=NULL, "

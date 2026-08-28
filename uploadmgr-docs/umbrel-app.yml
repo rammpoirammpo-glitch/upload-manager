@@ -1,0 +1,48 @@
+manifestVersion: 1.1
+id: uploadmgr-docs
+category: utilities
+name: Reaparr Docs
+version: "1.0.0"
+tagline: Reaparr documentation website
+icon: https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-docs/icon.svg
+description: >-
+  Opens the official Reaparr documentation website (reaparr.rocks) inside the
+  Umbrel dashboard as a full app. Browse the getting-started guide, provider
+  configuration and troubleshooting docs without opening a separate browser
+  tab.
+
+
+  This app is a lightweight, stateless reverse-proxy to the official Reaparr
+  docs — it has no database, no background workers and no permissions beyond
+  network access, so it never consumes CPU or disk in the background.
+
+
+  ## What you'll find
+
+  - Getting started and installation guides
+  - Configuring download clients and providers
+  - Troubleshooting and FAQ
+
+
+  The live site is served by the Reaparr project; this app just fronts it so
+  it feels native inside umbrelOS.
+developer: Upload Manager
+website: https://www.reaparr.rocks
+repo: https://github.com/Reaparr/Docs
+support: https://github.com/Reaparr/Reaparr/issues
+port: 8055
+gallery:
+  - https://raw.githubusercontent.com/rammpoirammpo-glitch/upload-manager/main/uploadmgr-docs/icon.svg
+path: ""
+dependencies: []
+defaultUsername: ""
+defaultPassword: ""
+permissions: []
+releaseNotes: >-
+  Initial release. Adds a "Reaparr Docs" app to this store that opens the
+  official Reaparr documentation website (reaparr.rocks) inside the Umbrel
+  dashboard via a lightweight, stateless nginx reverse-proxy on port 8055.
+  No background workers, no database and no extra permissions, so it stays
+  perfectly stable on 24/7 devices.
+submitter: Your Name
+submission: https://github.com/rammpoirammpo-glitch/upload-manager

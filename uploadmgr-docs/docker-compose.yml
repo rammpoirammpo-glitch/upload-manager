@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  app_proxy:
+    environment:
+      # Format: <app-id>_<docker-service-name>_1
+      APP_HOST: uploadmgr-docs_web_1
+      APP_PORT: 8080
+      # Allow the docs site (including its JSON/content API paths) through
+      # without Umbrel's auth proxy hijacking them.
+      PROXY_AUTH_ADD: "false"
+
+  web:
+    # Multi-arch (amd64+arm64) pinned to the nginx:1.27-alpine manifest list digest.
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    restart: on-failure
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro

@@ -36,6 +36,18 @@ RETRY_BACKOFF = _int("RETRY_BACKOFF", 30)           # base backoff (seconds)
 RETRY_BACKOFF_CAP = _int("RETRY_BACKOFF_CAP", 300)  # never wait longer than this
 RETRY_JITTER = _int("RETRY_JITTER", 5, minimum=0)   # +0..N random seconds
 
+# --- Worker anti-stall (zero-freeze guard) -----------------------------------
+# How long a worker thread may go without a progress heartbeat before the
+# watchdog treats it as STUCK and reclaims its concurrency slot (resets the
+# item to pending so a stalled provider can never wedge the queue forever on
+# a 24/7 run). Combined with the per-future timeout in _process_item.
+WORKER_STALL_SECONDS = _int("WORKER_STALL_SECONDS", 600, minimum=30)
+# Timeout on the main _process_item thread while waiting for all provider
+# worker futures to finish. If a single provider hangs (e.g. a botocore call
+# that ignored its timeout), the item is marked failed / re-pended instead of
+# staying 'uploading' and blocking a slot indefinitely.
+WORKER_JOIN_TIMEOUT = _int("WORKER_JOIN_TIMEOUT", 1800, minimum=60)
+
 # Completed items older than this are pruned automatically (0 = keep forever).
 PRUNE_COMPLETED_DAYS = _int("PRUNE_COMPLETED_DAYS", 30, minimum=0)
 
