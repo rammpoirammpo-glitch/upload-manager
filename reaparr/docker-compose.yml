@@ -1,0 +1,56 @@
+version: "3.8"
+
+# ============================================================================
+# Reaparr — a Plex media downloader that also acts as an indexer + download
+# client for Sonarr and Radarr.
+#
+# Source: official image on Docker Hub -> reaparr/reaparr (reaparr/reaparr)
+# Web UI:  http://<server-ip>:7000
+#
+# HOW TO USE
+#   1. Copy `.env.example` to `.env` and set HOST_PORT, PUID, PGID, TZ.
+#   2. `mkdir -p Config Downloads Movies TvShows`
+#   3. `docker compose up -d`
+#
+# See README.md for the full step-by-step guide.
+# ============================================================================
+
+services:
+  reaparr:
+    # Multi-arch (amd64 + arm64) pinned to the manifest-list digest of v0.39.0.
+    # Pin protects against silent, unreviewed upstream changes on every pull.
+    image: reaparr/reaparr:0.39.0@sha256:2dca8f67055e351d5ee0686a8abd4ea72c66a0068559b288bc0bcad72cc927bc
+    container_name: reaparr
+    restart: unless-stopped
+    ports:
+      # Web UI & Web API (host port configurable via .env; default 7000)
+      - "${HOST_PORT:-7000}:7000"
+    environment:
+      # Run as an unprivileged user instead of root. MUST match the owner of
+      # the Config/Downloads/Movies/TvShows host folders to avoid permission
+      # errors (e.g. UnauthorizedAccessException on /Config/ReaparrSettings.json).
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # Unix timezone, e.g. Europe/Berlin, America/New_York, Asia/Riyadh.
+      - TZ=${TZ:-UTC}
+      # Keep sensitive data (API keys/tokens) masked in logs.
+      - UNMASKED=false
+      # Optional: DEBUG / INFO / WARNING / ERROR
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # The container's internal web server port (do not change).
+      - PORT=7000
+    volumes:
+      # Persistent configuration, logs and database (put on fast storage).
+      - ./Config:/Config
+      # Temporary storage while downloading.
+      - ./Downloads:/Downloads
+      # Default destination folder for movies.
+      - ./Movies:/Movies
+      # Default destination folder for TV shows.
+      - ./TvShows:/TvShows
+    networks:
+      - default
+
+networks:
+  default:
+    driver: bridge
